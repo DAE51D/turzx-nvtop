@@ -5,6 +5,9 @@ in the same style as [knvtop](https://github.com/DAE51D/knvtop) and [onvtop](htt
 It is a client of [nvstats-service](https://github.com/DAE51D/nvstats-service) and is otherwise self-contained:
 its own USB-serial driver, no third-party screen library, no pyserial.
 
+![gauges screen](docs/6-panel.jpg)
+![graph screen](docs/nvtop-graph.jpg)
+
 Screens (rotating; order and durations configurable):
 
 | Screen | Shows |
@@ -22,6 +25,12 @@ You can [find these](https://www.ebay.com/sch/i.html?_nkw=3.5%20Inch%20Type%E2%8
 ![6-panels](docs/6-panel.jpg)  ![nvtop-graph](docs/nvtop-graph.jpg)
 
 
+## Smoothness
+
+The graph scrolls continuously: every point is placed by the time it arrived (`px_per_second`), so lines glide
+at 4 fps between samples instead of jumping once per sample. nvstats-service samples once a second by default;
+for livelier numbers run it with `./install.sh --http --poll 0.5` (nvstats-service 0.3.0 or newer).
+
 ## How it stays fast
 
 The panel takes ~1.8 s for a full frame and repaints top to bottom. So each screen is rendered in memory,
@@ -31,13 +40,13 @@ switches are slow and visible.
 
 ## Requirements
 
-Linux, Python 3.8+, Pillow and numpy, a running nvstats-service with HTTP enabled (`./install.sh --http` there).
+Linux, Python 3.8+, Pillow and numpy, a running [nvstats-service](https://github.com/DAE51D/nvstats-service) with HTTP enabled (`./install.sh --http` there).
 No distro-specific code: it talks to `/dev/ttyACM*` with plain termios.
 
 ## Install
 
 ```sh
-git clone <this repo> && cd turzx-nvtop
+git clone https://github.com/DAE51D/turzx-nvtop.git && cd turzx-nvtop
 ./install.sh                                   # user service + udev rule (asks for sudo for the rule)
 sudo ./install.sh --system --run-as USER       # headless host: system service
 ```
@@ -53,6 +62,7 @@ Upside down because of your cable? `rotation = 180` under `[display]` (or `--rot
 ## Commands
 
 ```sh
+python3 -m turzx_nvtop --version
 python3 -m turzx_nvtop                 # run in the foreground (-v prints pixels/rects/ms per frame)
 python3 -m turzx_nvtop preview gauges out.png [--demo]   # render a screen to PNG, no hardware needed
 python3 -m turzx_nvtop sync | on | off # recover a wedged panel / screen on / off
