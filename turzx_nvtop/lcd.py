@@ -10,6 +10,7 @@ Two layers:
   transmits the rectangles that differ from it.  The link carries ~150k pixels/s and the panel
   repaints top-to-bottom, so sending only what changed is what makes live graphs usable.
 """
+import errno
 import glob
 import os
 import time
@@ -117,8 +118,15 @@ class _RawPort:
             while mv:
                 n = os.write(self.fd, mv)
                 mv = mv[n:]
-            self._termios.tcdrain(self.fd)
-        except OSError as e:
+            while True:
+                try:
+                    self._termios.tcdrain(self.fd)
+                    break
+                except self._termios.error as e:
+                    if e.args and e.args[0] == errno.EINTR:   # a signal (e.g. SIGTERM) arrived; just drain again
+                        continue
+                    raise
+        except (OSError, self._termios.error) as e:
             raise LcdError(f"write failed: {e}") from e
 
     def close(self):

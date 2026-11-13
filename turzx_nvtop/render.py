@@ -224,7 +224,11 @@ def render_gauges(v):
         rx, ry = cx + (cw - diam) // 2, cy + 8
         r = ring(diam, 9, v.frac(k), col)
         img.paste(r, (rx, ry), r)
-        ctext(d, cx + cw // 2, ry + diam // 2 - 13, v.text(k), font(21, True), TEXT if v.live else DIM)
+        # centre the digit height (measured on "0", so it is stable between values) on the ring centre
+        vf = font(21, True)
+        t, b = d.textbbox((0, 0), "0", font=vf, anchor="ls")[1::2]
+        d.text((cx + cw // 2, round(ry + diam / 2 - (t + b) / 2)), v.text(k), font=vf,
+               fill=TEXT if v.live else DIM, anchor="ms")
         ctext(d, cx + cw // 2, cy + 90, LABELS[k] if k != "gtt" else v.mem_label, font(12, True), col)
         ctext(d, cx + cw // 2, cy + 106, gauge_sub(v, k), font(10), DIM)
     drv = v.gpu.get("driver")
