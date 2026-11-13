@@ -17,8 +17,8 @@ DEFAULTS = {
     },
     "screens": {
         "order": "graph, gauges",         # any of: graph, gauges, llm
-        "graph_seconds": "10",
-        "gauges_seconds": "10",
+        "graph_seconds": "15",
+        "gauges_seconds": "5",
         "llm_seconds": "5",
     },
     "graph": {

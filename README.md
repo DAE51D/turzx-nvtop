@@ -9,8 +9,8 @@ Screens (rotating; order and durations configurable):
 
 | Screen | Shows |
 | --- | --- |
-| `graph`  | GPU / GTT / TMP / PWR / CPU history lines with live values (default 10 s) |
-| `gauges` | six ring gauges: GPU, GTT, TMP, PWR, CPU, RAM (default 10 s) |
+| `graph`  | GPU / GTT / TMP / PWR / CPU history lines with live values (default 15 s) |
+| `gauges` | six ring gauges: GPU, GTT, TMP, PWR, CPU, RAM (default 5 s) |
 | `llm`    | running llama.cpp / Ollama / vLLM / SGLang / TGI engines (off by default) |
 
 ## How it stays fast
