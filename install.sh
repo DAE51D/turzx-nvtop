@@ -2,15 +2,17 @@
 # Install turzx-nvtop from this checkout.
 #   ./install.sh                     user service (systemd --user), udev rule via sudo
 #   sudo ./install.sh --system --run-as USER   system service for a headless host
+#   ./install.sh --udev-only         just the udev rule (device access + ModemManager ignore)
 # The service runs straight from this directory; keep the checkout where it is.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-mode=user; run_as=""
+mode=user; run_as=""; udev_only=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --system) mode=system ;;
+    --udev-only) udev_only=1 ;;
     --run-as) run_as="$2"; shift ;;
-    -h|--help) sed -n '2,5p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,6p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac; shift
 done
@@ -28,14 +30,22 @@ MSG
 fi
 
 SUDO=""; [ "$(id -u)" -eq 0 ] || SUDO="sudo"
-echo "==> udev rule (stable /dev/turzx-lcd, keeps ModemManager away)"
-$SUDO install -m 0644 "$here/packaging/99-turzx-lcd.rules" /etc/udev/rules.d/99-turzx-lcd.rules
+# Serial-port group differs by distro: dialout (Debian, Ubuntu, Fedora, ...) or uucp (Arch, ...).
+grp=""
+for g in dialout uucp; do getent group "$g" >/dev/null && { grp="$g"; break; }; done
+echo "==> udev rule (stable /dev/turzx-lcd, uaccess for the logged-in user, keeps ModemManager away)"
+rule=/etc/udev/rules.d/70-turzx-lcd.rules
+$SUDO rm -f /etc/udev/rules.d/99-turzx-lcd.rules      # earlier releases used a name that sorted too late to work
+if [ -n "$grp" ]; then sed "s|@GROUP@|$grp|" "$here/packaging/70-turzx-lcd.rules"
+else sed 's|GROUP="@GROUP@", ||' "$here/packaging/70-turzx-lcd.rules"; fi | $SUDO tee "$rule" >/dev/null
+$SUDO chmod 0644 "$rule"
 $SUDO udevadm control --reload-rules
-$SUDO udevadm trigger --subsystem-match=tty --action=change || true
+$SUDO udevadm trigger --subsystem-match=tty --action=add || true
+if [ "$udev_only" = 1 ]; then echo "udev rule installed ($rule). Re-plug the display if it was already connected."; exit 0; fi
 
 if [ "$mode" = user ]; then
   [ "$(id -u)" -ne 0 ] || { echo "run user mode without sudo" >&2; exit 1; }
-  id -nG | tr ' ' '\n' | grep -qx dialout || echo "note: you are not in group 'dialout'; if /dev/turzx-lcd is not accessible run: sudo usermod -aG dialout $USER (then re-login)"
+  [ -w /dev/turzx-lcd ] 2>/dev/null || echo "note: /dev/turzx-lcd is not writable for you yet. Re-plug the display; on a headless box (no local login) add yourself to '${grp:-dialout}': sudo usermod -aG ${grp:-dialout} $USER, then log in again"
   cfg="$HOME/.config/turzx-nvtop"; mkdir -p "$cfg"
   [ -f "$cfg/config.ini" ] || cp "$here/config.example.ini" "$cfg/config.ini"
   unit="$HOME/.config/systemd/user"; mkdir -p "$unit"
@@ -48,10 +58,10 @@ if [ "$mode" = user ]; then
 else
   [ "$(id -u)" -eq 0 ] || { echo "--system needs root" >&2; exit 1; }
   [ -n "$run_as" ] || { echo "--system needs --run-as USER (a user that may read /dev/turzx-lcd)" >&2; exit 1; }
-  usermod -aG dialout "$run_as"
+  [ -n "$grp" ] && usermod -aG "$grp" "$run_as"
   mkdir -p /etc/turzx-nvtop
   [ -f /etc/turzx-nvtop/config.ini ] || cp "$here/config.example.ini" /etc/turzx-nvtop/config.ini
-  sed -e "s|@PYTHON@|$py|" -e "s|@DIR@|$here|" -e "s|@SYSTEM_ONLY@|User=$run_as\nSupplementaryGroups=dialout|" -e "s|@TARGET@|multi-user.target|" \
+  sed -e "s|@PYTHON@|$py|" -e "s|@DIR@|$here|" -e "s|@SYSTEM_ONLY@|User=$run_as\nSupplementaryGroups=${grp:-dialout}|" -e "s|@TARGET@|multi-user.target|" \
     "$here/packaging/turzx-nvtop.service" > /etc/systemd/system/turzx-nvtop.service
   systemctl daemon-reload
   systemctl enable --now turzx-nvtop.service

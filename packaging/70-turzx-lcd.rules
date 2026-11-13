@@ -1,0 +1,9 @@
+# Turzx / Turing Smart Screen 3.5" USB LCD (CDC-ACM serial, 1a86:5722)
+#  - stable /dev/turzx-lcd name
+#  - uaccess: whoever is logged in at the machine gets access (no group membership needed)
+#  - GROUP: lets a headless/system service (running as a member of that group) open it too
+#  - ID_MM_*_IGNORE: ModemManager would otherwise probe the port with AT commands, which the
+#    panel parses as drawing commands and can wedge until re-plugged.
+# This file MUST sort before 73-seat-late.rules (which applies "uaccess") and the 77-mm-*.rules
+# (ModemManager), hence the 70- prefix. A 99- name silently does nothing.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="5722", SYMLINK+="turzx-lcd", MODE="0660", GROUP="@GROUP@", TAG+="uaccess", ENV{ID_MM_DEVICE_IGNORE}="1", ENV{ID_MM_PORT_IGNORE}="1"

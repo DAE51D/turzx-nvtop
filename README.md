@@ -51,8 +51,19 @@ git clone https://github.com/DAE51D/turzx-nvtop.git && cd turzx-nvtop
 sudo ./install.sh --system --run-as USER       # headless host: system service
 ```
 
-The udev rule gives a stable `/dev/turzx-lcd`, grants access (group `dialout` / logged-in user) and tells
-ModemManager to leave the port alone, because it otherwise probes it with AT commands and can wedge the panel.
+The udev rule (`packaging/70-turzx-lcd.rules`, installed to `/etc/udev/rules.d/`) does three things:
+
+- gives the display a stable name, `/dev/turzx-lcd`;
+- grants access to whoever is logged in at the machine (`uaccess`), so no group membership is needed on a desktop.
+  Headless or system-service use goes through the serial group instead (`dialout`, or `uucp` on Arch-family distros;
+  the installer picks the one your distro has);
+- tells ModemManager to leave the port alone. It otherwise probes it with AT commands, which the panel parses as
+  drawing commands and can wedge until re-plugged.
+
+The file name matters: it has to sort before `73-seat-late.rules` (applies `uaccess`) and `77-mm-*.rules`
+(ModemManager), which is why it starts with `70-`. Only the rule is needed? `./install.sh --udev-only`, then re-plug.
+
+**Unplugging is fine.** The daemon logs it once, waits quietly, and redraws as soon as the display is back.
 
 ## Configure
 

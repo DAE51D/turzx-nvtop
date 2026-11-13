@@ -29,7 +29,7 @@ leave the device alone. ModemManager is installed by default on Kubuntu and prob
 by writing `AT` commands into them — on this device stray bytes are parsed as display commands, which
 can de-synchronise or hang it.
 
-Create `/etc/udev/rules.d/99-turzx-lcd.rules` with this single line:
+Create `/etc/udev/rules.d/70-turzx-lcd.rules` with this single line:
 
 ```
 SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="5722", SYMLINK+="turzx-lcd", MODE="0660", GROUP="dialout", TAG+="uaccess", ENV{ID_MM_DEVICE_IGNORE}="1"
@@ -40,6 +40,10 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
 
 Re-plug the display; `/dev/turzx-lcd` should now exist.
+
+> **Naming matters.** An earlier draft of these notes used `99-turzx-lcd.rules`. That does not work: `uaccess` is applied
+> by `73-seat-late.rules` and ModemManager's `77-mm-*.rules` run before a `99-` file ever sets its tag/property.
+> Use a `70-` name. The maintained version of the rule is `packaging/70-turzx-lcd.rules` in the repository root.
 
 ## 3. First test with the small tool in this folder
 

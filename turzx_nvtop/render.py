@@ -5,6 +5,7 @@ import time
 
 from PIL import Image, ImageDraw, ImageFont
 
+from . import __version__
 from .source import SERIES
 
 FONT_DIR = os.path.join(os.path.dirname(__file__), "fonts")
@@ -240,8 +241,17 @@ def render_gauges(v):
                fill=TEXT if v.live else DIM, anchor="ms")
         ctext(d, cx + cw // 2, cy + 90, LABELS[k] if k != "gtt" else v.mem_label, font(12, True), col)
         ctext(d, cx + cw // 2, cy + 106, gauge_sub(v, k), font(10), DIM)
-    drv = v.gpu.get("driver")
-    ctext(d, 240, 302, f"driver {drv}" if drv and v.live else (v.error or ""), font(10), DIM)
+    if v.live:
+        bits = []
+        if v.gpu.get("driver"):
+            bits.append(f"driver {v.gpu['driver']}")
+        if v.sample.get("version"):
+            bits.append(f"nvstats {v.sample['version']}")
+        bits.append(f"turzx-nvtop {__version__}")
+        foot = "  \u00b7  ".join(bits)
+    else:
+        foot = v.error or ""
+    ctext(d, 240, 302, foot, font(10), DIM)
     return img
 
 

@@ -29,7 +29,7 @@ def demo_state(cfg):
     st = make_state(cfg)
     for i in range(240):
         st.push(t=time.monotonic() - (239 - i), s={
-            "host": "DEMO-HOST", "seq": i,
+            "host": "DEMO-HOST", "seq": i, "version": "0.3.0",
             "gpu": {"name": "AMD Radeon 8060S Graphics", "driver": "7.1.9", "util": 50 + 45 * math.sin(i / 17),
                     "mem_used": 30000 + 20000 * math.sin(i / 53), "mem_total": 79872,
                     "temp": 52 + 14 * math.sin(i / 29), "power_w": 60 + 40 * math.sin(i / 11),
@@ -65,13 +65,15 @@ class Scheduler:
 
 
 def connect(cfg, stop):
-    """Open the panel, retrying until it appears."""
+    """Open the panel, retrying until it appears. Logs only when the situation changes
+    (unplugged, permission denied, ...), not on every retry, so an unplugged screen is quiet."""
     port_cfg = cfg.s("display", "port")
+    last_msg = None
     while not stop.is_set():
         try:
             path = None if port_cfg == "auto" else port_cfg
             if path is None and find_port() is None:
-                raise LcdError("display not found (USB 1a86:5722)")
+                raise LcdError("display not found (USB 1a86:5722); waiting for it to be plugged in")
             lcd = Turzx(path)
             if cfg.b("display", "sync_on_start"):
                 lcd.sync()
@@ -79,10 +81,13 @@ def connect(cfg, stop):
             lcd.set_brightness(cfg.i("display", "brightness"))
             lcd.screen_on()
             log(f"display ready on {lcd.path}")
+            stop.wait(cfg.f("display", "settle_seconds"))   # a freshly enumerated panel may drop early data
             return lcd
         except LcdError as e:
-            log(f"{e}; retrying in 5 s")
-            stop.wait(5)
+            if str(e) != last_msg:
+                log(f"{e}")
+                last_msg = str(e)
+            stop.wait(2)
     return None
 
 
@@ -105,8 +110,12 @@ def run(cfg):
                     break
                 disp = Display(lcd)
                 last_full = time.monotonic()
+                repaint_at = last_full + cfg.f("display", "settle_seconds") + 3.0   # one more full paint, see config
             t0 = time.monotonic()
             name, switched = sched.current(t0)
+            if repaint_at and t0 >= repaint_at:
+                disp.invalidate()      # first frames after a plug-in can be lost; repaint everything once
+                repaint_at = 0
             if full_every and t0 - last_full >= full_every:
                 disp.invalidate()
                 last_full = t0
