@@ -28,7 +28,7 @@ def demo_state(cfg):
     """Synthetic data so screens can be previewed without nvstats or hardware."""
     st = make_state(cfg)
     for i in range(240):
-        st.push({
+        st.push(t=time.monotonic() - (239 - i), s={
             "host": "DEMO-HOST", "seq": i,
             "gpu": {"name": "AMD Radeon 8060S Graphics", "driver": "7.1.9", "util": 50 + 45 * math.sin(i / 17),
                     "mem_used": 30000 + 20000 * math.sin(i / 53), "mem_total": 79872,
@@ -39,7 +39,6 @@ def demo_state(cfg):
                                "rss_kb": 3400000, "ctx": 262144, "parallel": 2, "cpu_pct": 12.0}],
                     "ollama": [{"name": "ollama", "port": None, "rss_kb": 40000}], "ollama_models": []},
         })
-    st.interval = 1.0   # the loop above pushed instantly; pretend 1 Hz
     return st
 
 
@@ -112,7 +111,7 @@ def run(cfg):
                 disp.invalidate()
                 last_full = t0
             sample, hist, age, err = state.snapshot()
-            img = RENDERERS[name](View(cfg, sample, hist, age, err, state.interval))
+            img = RENDERERS[name](View(cfg, sample, hist, age, err))
             try:
                 disp.present(img)
             except LcdError as e:
@@ -151,7 +150,7 @@ def preview(cfg, screen, out, demo):
             raise SystemExit(f"no sample from {cfg.s('nvstats', 'url')} ({state.error}); try --demo")
         stop.set()
     sample, hist, age, err = state.snapshot()
-    RENDERERS[screen](View(cfg, sample, hist, age, err, state.interval)).save(out)
+    RENDERERS[screen](View(cfg, sample, hist, age, err)).save(out)
     log(f"wrote {out}")
 
 

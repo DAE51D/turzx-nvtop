@@ -22,9 +22,9 @@ class State:
         self.history = {k: collections.deque(maxlen=history_len) for k in SERIES}
         self.limits = limits         # dict: power_max_w, temp_max_c
         self.error = None
-        self.interval = 1.0          # smoothed seconds between samples (measured)
+        self.times = collections.deque(maxlen=history_len)   # monotonic arrival time of each history point
 
-    def push(self, s):
+    def push(self, s, t=None):
         g = s.get("gpu") or {}
         sysd = s.get("sys") or {}
         pmax = _num(g.get("power_cap_w")) or self.limits["power_max_w"]
@@ -37,12 +37,10 @@ class State:
             "cpu": _num(sysd.get("cpu")),
         }
         with self.lock:
-            now = time.monotonic()
-            if self.last_rx and now - self.last_rx < 30:
-                gap = max(0.1, now - self.last_rx)
-                self.interval = 0.7 * self.interval + 0.3 * gap
+            now = time.monotonic() if t is None else t
             self.sample = s
             self.last_rx = now
+            self.times.append(now)
             self.error = None
             for k in SERIES:
                 self.history[k].append(max(0.0, min(100.0, norm[k])))
@@ -51,7 +49,9 @@ class State:
         """(sample or None, {series: [values]}, seconds since last sample, error text)."""
         with self.lock:
             age = time.monotonic() - self.last_rx if self.last_rx else None
-            return self.sample, {k: list(v) for k, v in self.history.items()}, age, self.error
+            hist = {k: list(v) for k, v in self.history.items()}
+            hist["t"] = list(self.times)        # arrival times, same length as every series
+            return self.sample, hist, age, self.error
 
 
 def follow(url, token, state, stop):

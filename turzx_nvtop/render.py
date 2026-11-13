@@ -1,6 +1,7 @@
 """Screen renderers. Each returns a full-size PIL image; Display.present() works out what changed."""
 import functools
 import os
+import time
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -58,7 +59,7 @@ def gib(v_mib):
 class View:
     """What a renderer needs: latest sample, history, freshness, config."""
 
-    def __init__(self, cfg, sample, history, age, error, interval=1.0):
+    def __init__(self, cfg, sample, history, age, error):
         self.sample = sample or {}
         self.history = history
         self.age = age
@@ -67,9 +68,9 @@ class View:
         self.mem_label = cfg.s("limits", "mem_label")
         self.power_max = cfg.f("limits", "power_max_w")
         self.temp_max = cfg.f("limits", "temp_max_c")
-        self.px = cfg.f("graph", "px_per_second") * interval   # pixels per sample at the measured rate
-        # fraction (0..1) of the way to the next sample, for smooth graph scrolling
-        self.scroll = min(1.0, age / interval) if (cfg.b("graph", "smooth") and self.live) else 0.0
+        self.pps = cfg.f("graph", "px_per_second")      # graph scroll speed, pixels per second
+        self.now = time.monotonic()
+        self.smooth = cfg.b("graph", "smooth")
         self.gpu = self.sample.get("gpu") or {}
         self.sys = self.sample.get("sys") or {}
 
@@ -157,12 +158,14 @@ def render_graph(v):
         hist = v.history.get(k) or []
         if len(hist) < 2:
             continue
-        n = len(hist)
-        # smooth scroll: between samples, slide everything left and hold the newest value at the edge
-        shift = v.scroll * v.px
-        pts = [((pw - 3 - (n - 1 - i) * v.px - shift) * S, top + (1 - val / 100) * span) for i, val in enumerate(hist)]
-        if shift:
-            pts.append(((pw - 3) * S, pts[-1][1]))
+        times = v.history.get("t") or []
+        # each point sits at x = right edge - age * px/s, so the whole line slides left continuously
+        # and rigidly between samples; with smooth=no it only moves when a sample arrives
+        newest = times[-1] if times else 0
+        pts = [((pw - 3 - ((v.now if v.smooth else newest) - t) * v.pps) * S, top + (1 - val / 100) * span)
+               for t, val in zip(times, hist)]
+        if v.smooth:
+            pts.append(((pw - 3) * S, pts[-1][1]))          # hold the newest value out to the edge
         pts = [p for p in pts if p[0] >= 0]
         if len(pts) >= 2:
             g.line(pts, fill=COLORS[k], width=int(1.6 * S), joint="curve")
