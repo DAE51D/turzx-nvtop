@@ -1,0 +1,13 @@
+[Unit]
+Description=turzx-nvtop: GPU stats on the Turzx 3.5" USB LCD
+After=network.target
+
+[Service]
+ExecStart=@PYTHON@ -m turzx_nvtop run
+WorkingDirectory=@DIR@
+Restart=always
+RestartSec=3
+@SYSTEM_ONLY@
+
+[Install]
+WantedBy=@TARGET@

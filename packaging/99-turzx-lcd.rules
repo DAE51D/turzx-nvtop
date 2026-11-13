@@ -1,0 +1,6 @@
+# Turzx / Turing Smart Screen 3.5" USB LCD (CDC-ACM serial, 1a86:5722)
+#  - stable /dev/turzx-lcd name
+#  - uaccess: the logged-in desktop user gets access; group dialout covers headless/service use
+#  - ID_MM_DEVICE_IGNORE: ModemManager would otherwise probe the port with AT commands, which the
+#    panel parses as drawing commands and can wedge until re-plugged.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="5722", SYMLINK+="turzx-lcd", MODE="0660", GROUP="dialout", TAG+="uaccess", ENV{ID_MM_DEVICE_IGNORE}="1", ENV{ID_MM_PORT_IGNORE}="1"
