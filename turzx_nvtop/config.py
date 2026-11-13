@@ -23,7 +23,8 @@ DEFAULTS = {
     },
     "graph": {
         "px_per_sample": "2",
-        "refresh_seconds": "2",           # how often the graph screen is redrawn
+        "refresh_seconds": "0.25",        # how often the graph screen is redrawn
+        "smooth": "yes",                  # scroll continuously between the 1 Hz samples (needs a fast refresh)
     },
     "gauges": {
         "refresh_seconds": "1",

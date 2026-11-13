@@ -68,6 +68,8 @@ class View:
         self.power_max = cfg.f("limits", "power_max_w")
         self.temp_max = cfg.f("limits", "temp_max_c")
         self.px = cfg.i("graph", "px_per_sample")
+        # fraction (0..1) of the way to the next 1 Hz sample, for smooth graph scrolling
+        self.scroll = min(1.0, age / 1.0) if (cfg.b("graph", "smooth") and self.live) else 0.0
         self.gpu = self.sample.get("gpu") or {}
         self.sys = self.sample.get("sys") or {}
 
@@ -156,7 +158,11 @@ def render_graph(v):
         if len(hist) < 2:
             continue
         n = len(hist)
-        pts = [((pw - 3 - (n - 1 - i) * v.px) * S, top + (1 - val / 100) * span) for i, val in enumerate(hist)]
+        # smooth scroll: between samples, slide everything left and hold the newest value at the edge
+        shift = v.scroll * v.px
+        pts = [((pw - 3 - (n - 1 - i) * v.px - shift) * S, top + (1 - val / 100) * span) for i, val in enumerate(hist)]
+        if shift:
+            pts.append(((pw - 3) * S, pts[-1][1]))
         pts = [p for p in pts if p[0] >= 0]
         if len(pts) >= 2:
             g.line(pts, fill=COLORS[k], width=int(1.6 * S), joint="curve")
