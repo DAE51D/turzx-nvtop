@@ -5,8 +5,10 @@ in the same style as [knvtop](https://github.com/DAE51D/knvtop) and [onvtop](htt
 It is a client of [nvstats-service](https://github.com/DAE51D/nvstats-service) and is otherwise self-contained:
 its own USB-serial driver, no third-party screen library, no pyserial.
 
-![gauges screen](docs/6-panel.jpg)
-![graph screen](docs/nvtop-graph.jpg)
+<p align="center">
+  <img src="docs/nvtop-graph.jpg" width="49%" alt="graph screen: GPU, GTT, temperature, power and CPU history">
+  <img src="docs/6-panel.jpg" width="49%" alt="gauges screen: six ring gauges">
+</p>
 
 Screens (rotating; order and durations configurable):
 
@@ -14,15 +16,12 @@ Screens (rotating; order and durations configurable):
 | --- | --- |
 | `graph`  | GPU / GTT / TMP / PWR / CPU history lines with live values (default 15 s) |
 | `gauges` | six ring gauges: GPU, GTT, TMP, PWR, CPU, RAM (default 5 s) |
-| `llm`    | running llama.cpp / Ollama / vLLM / SGLang / TGI engines (off by default) |
+| `llm`    | running llama.cpp / Ollama / vLLM / SGLang / TGI engines (off by default: add it to `order` under `[screens]`) |
 
 
 ## Turzx 3.5 USB LCD
 
 You can [find these](https://www.ebay.com/sch/i.html?_nkw=3.5%20Inch%20Type%E2%80%91C%20IPS%20Secondary%20Screen%20320*480%20USB&_sacat=0&_sop=15) on eBay for $20 or so. [This is a nice kit](https://www.ebay.com/itm/145206664084?var=444390238227) too.
-
-
-![6-panels](docs/6-panel.jpg)  ![nvtop-graph](docs/nvtop-graph.jpg)
 
 
 ## Smoothness
@@ -35,13 +34,20 @@ for livelier numbers run it with `./install.sh --http --poll 0.5` (nvstats-servi
 
 The panel takes ~1.8 s for a full frame and repaints top to bottom. So each screen is rendered in memory,
 compared with a shadow copy of what the panel shows, and only the changed rectangles are sent. Steady state is
-about 3-6k pixels and 45-90 ms per update. A screen *switch* is a near-full repaint (~1.6 s), which is why
-switches are slow and visible.
+roughly 500-2000 pixels and 20-40 ms per update, so the graph can scroll smoothly at 4 frames a second. A screen
+*switch* is a near-full repaint (~1.6 s), which is why switches are slow and visible.
 
 ## Requirements
 
-Linux, Python 3.8+, Pillow and numpy, a running [nvstats-service](https://github.com/DAE51D/nvstats-service) with HTTP enabled (`./install.sh --http` there).
-No distro-specific code: it talks to `/dev/ttyACM*` with plain termios.
+- Linux with Python 3 (written to the 3.8 feature level, developed on 3.14), plus Pillow and numpy
+  (`apt install python3-pil python3-numpy`, `dnf install python3-pillow python3-numpy`, or `pip install pillow numpy`).
+- A running [nvstats-service](https://github.com/DAE51D/nvstats-service) **0.2.2 or newer with HTTP enabled**:
+  `./install.sh --http` in that repo. This installer cannot do that for you, but it checks and tells you if it is missing.
+- No distro-specific code: it talks to `/dev/ttyACM*` with plain termios.
+
+Tested on Kubuntu 26.04 with an AMD Ryzen AI Max+ 395 (nvstats-service 0.3.0, user-service mode). Written for but **not yet
+tested**: `--system` mode, distros that use the `uucp` group, and NVIDIA GPUs (nvstats supports them; this client only
+displays what it is given).
 
 ## Install
 
@@ -64,6 +70,17 @@ The file name matters: it has to sort before `73-seat-late.rules` (applies `uacc
 (ModemManager), which is why it starts with `70-`. Only the rule is needed? `./install.sh --udev-only`, then re-plug.
 
 **Unplugging is fine.** The daemon logs it once, waits quietly, and redraws as soon as the display is back.
+
+## Troubleshooting
+
+| Symptom | What to try |
+| --- | --- |
+| Screen stays blank right after plugging in | Wait a few seconds; it repaints after a short settle delay. Still blank: `python3 -m turzx_nvtop sync`, then restart the service. |
+| `NO DATA` in the corner | nvstats-service is not running or has no HTTP. `curl http://127.0.0.1:8039/health` should answer; see its README. |
+| Upside down | `rotation = 180` under `[display]`. |
+| `permission denied` on `/dev/turzx-lcd` | Re-plug after installing the rule. On a box with nobody logged in at the console, add the service user to `dialout` (or `uucp`). |
+| Garbled or shifted pixels | Run `python3 tests/hw_striptest.py` and see [docs/protocol](docs/protocol) (write framing). |
+| Logs | `journalctl --user -u turzx-nvtop -f` (or without `--user` for a system install). |
 
 ## Configure
 

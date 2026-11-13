@@ -29,6 +29,20 @@ MSG
   exit 1
 fi
 
+
+# The one dependency this script cannot install: nvstats-service with its HTTP API.
+check_nvstats() {
+  if (cd "$here" && "$py" -c 'import urllib.request as u; from turzx_nvtop.config import Config; c = Config(None); u.urlopen(c.s("nvstats", "url").rstrip("/") + "/health", timeout=3)') 2>/dev/null; then
+    echo "nvstats-service is reachable."
+  else
+    cat <<MSG
+WARNING: nvstats-service is not answering at the configured URL (default http://127.0.0.1:8039), so the
+display will show NO DATA until it is. Install it (https://github.com/DAE51D/nvstats-service) with HTTP enabled:
+  git clone https://github.com/DAE51D/nvstats-service.git && cd nvstats-service && ./install.sh --http
+MSG
+  fi
+}
+
 SUDO=""; [ "$(id -u)" -eq 0 ] || SUDO="sudo"
 # Serial-port group differs by distro: dialout (Debian, Ubuntu, Fedora, ...) or uucp (Arch, ...).
 grp=""
@@ -55,6 +69,7 @@ if [ "$mode" = user ]; then
   systemctl --user enable --now turzx-nvtop.service
   loginctl enable-linger "$USER" 2>/dev/null || sudo loginctl enable-linger "$USER" || echo "note: run 'sudo loginctl enable-linger $USER' to start at boot without a login"
   echo "Installed. Config: $cfg/config.ini   Logs: journalctl --user -u turzx-nvtop -f"
+  check_nvstats
 else
   [ "$(id -u)" -eq 0 ] || { echo "--system needs root" >&2; exit 1; }
   [ -n "$run_as" ] || { echo "--system needs --run-as USER (a user that may read /dev/turzx-lcd)" >&2; exit 1; }
@@ -66,4 +81,5 @@ else
   systemctl daemon-reload
   systemctl enable --now turzx-nvtop.service
   echo "Installed. Config: /etc/turzx-nvtop/config.ini   Logs: journalctl -u turzx-nvtop -f"
+  check_nvstats
 fi
