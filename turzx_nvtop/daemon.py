@@ -18,7 +18,8 @@ def log(msg):
 
 def make_state(cfg):
     pw = 471 - 8 + 1
-    hist_len = pw // max(1, cfg.i("graph", "px_per_sample")) + 2
+    # enough samples to fill the graph at the fastest rate nvstats allows (0.25 s)
+    hist_len = int(pw / max(0.1, cfg.f("graph", "px_per_second")) / 0.25) + 2
     limits = {"power_max_w": cfg.f("limits", "power_max_w"), "temp_max_c": cfg.f("limits", "temp_max_c")}
     return State(limits, hist_len)
 
@@ -38,6 +39,7 @@ def demo_state(cfg):
                                "rss_kb": 3400000, "ctx": 262144, "parallel": 2, "cpu_pct": 12.0}],
                     "ollama": [{"name": "ollama", "port": None, "rss_kb": 40000}], "ollama_models": []},
         })
+    st.interval = 1.0   # the loop above pushed instantly; pretend 1 Hz
     return st
 
 
@@ -110,7 +112,7 @@ def run(cfg):
                 disp.invalidate()
                 last_full = t0
             sample, hist, age, err = state.snapshot()
-            img = RENDERERS[name](View(cfg, sample, hist, age, err))
+            img = RENDERERS[name](View(cfg, sample, hist, age, err, state.interval))
             try:
                 disp.present(img)
             except LcdError as e:
@@ -149,7 +151,7 @@ def preview(cfg, screen, out, demo):
             raise SystemExit(f"no sample from {cfg.s('nvstats', 'url')} ({state.error}); try --demo")
         stop.set()
     sample, hist, age, err = state.snapshot()
-    RENDERERS[screen](View(cfg, sample, hist, age, err)).save(out)
+    RENDERERS[screen](View(cfg, sample, hist, age, err, state.interval)).save(out)
     log(f"wrote {out}")
 
 

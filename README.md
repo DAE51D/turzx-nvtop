@@ -13,6 +13,15 @@ Screens (rotating; order and durations configurable):
 | `gauges` | six ring gauges: GPU, GTT, TMP, PWR, CPU, RAM (default 5 s) |
 | `llm`    | running llama.cpp / Ollama / vLLM / SGLang / TGI engines (off by default) |
 
+
+## Turzx 3.5 USB LCD
+
+You can [find these](https://www.ebay.com/sch/i.html?_nkw=3.5%20Inch%20Type%E2%80%91C%20IPS%20Secondary%20Screen%20320*480%20USB&_sacat=0&_sop=15) on eBay for $20 or so. [This is a nice kit](https://www.ebay.com/itm/145206664084?var=444390238227) too.
+
+
+![6-panels](docs/6-panel.jpg)  ![nvtop-graph](docs/nvtop-graph.jpg)
+
+
 ## How it stays fast
 
 The panel takes ~1.8 s for a full frame and repaints top to bottom. So each screen is rendered in memory,

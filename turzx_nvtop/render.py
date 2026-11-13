@@ -58,7 +58,7 @@ def gib(v_mib):
 class View:
     """What a renderer needs: latest sample, history, freshness, config."""
 
-    def __init__(self, cfg, sample, history, age, error):
+    def __init__(self, cfg, sample, history, age, error, interval=1.0):
         self.sample = sample or {}
         self.history = history
         self.age = age
@@ -67,9 +67,9 @@ class View:
         self.mem_label = cfg.s("limits", "mem_label")
         self.power_max = cfg.f("limits", "power_max_w")
         self.temp_max = cfg.f("limits", "temp_max_c")
-        self.px = cfg.i("graph", "px_per_sample")
-        # fraction (0..1) of the way to the next 1 Hz sample, for smooth graph scrolling
-        self.scroll = min(1.0, age / 1.0) if (cfg.b("graph", "smooth") and self.live) else 0.0
+        self.px = cfg.f("graph", "px_per_second") * interval   # pixels per sample at the measured rate
+        # fraction (0..1) of the way to the next sample, for smooth graph scrolling
+        self.scroll = min(1.0, age / interval) if (cfg.b("graph", "smooth") and self.live) else 0.0
         self.gpu = self.sample.get("gpu") or {}
         self.sys = self.sample.get("sys") or {}
 
