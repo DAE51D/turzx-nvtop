@@ -27,14 +27,14 @@ You can [find these](https://www.ebay.com/sch/i.html?_nkw=3.5%20Inch%20Type%E2%8
 ## Smoothness
 
 The graph scrolls continuously: every point is placed by the time it arrived (`px_per_second`), so lines glide
-at 4 fps between samples instead of jumping once per sample. nvstats-service samples once a second by default;
+at 2 fps between samples instead of jumping once per sample (`refresh_seconds` under `[graph]`; 0.25 is smoother, but the panel repaints top to bottom and the ripple becomes visible). nvstats-service samples once a second by default;
 for livelier numbers run it with `./install.sh --http --poll 0.5` (nvstats-service 0.3.0 or newer).
 
 ## How it stays fast
 
 The panel takes ~1.8 s for a full frame and repaints top to bottom. So each screen is rendered in memory,
 compared with a shadow copy of what the panel shows, and only the changed rectangles are sent. Steady state is
-roughly 500-2000 pixels and 20-40 ms per update, so the graph can scroll smoothly at 4 frames a second. A screen
+roughly 500-2000 pixels and 20-40 ms per update, so the graph can scroll smoothly at 2 frames a second. A screen
 *switch* is a near-full repaint (~1.6 s), which is why switches are slow and visible.
 
 ## Requirements

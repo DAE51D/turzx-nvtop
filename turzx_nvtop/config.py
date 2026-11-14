@@ -24,7 +24,7 @@ DEFAULTS = {
     },
     "graph": {
         "px_per_second": "2",            # horizontal scroll speed; 2 px/s = ~3.9 minutes of history
-        "refresh_seconds": "0.25",        # how often the graph screen is redrawn
+        "refresh_seconds": "0.5",         # how often the graph screen is redrawn
         "smooth": "yes",                  # scroll continuously between the 1 Hz samples (needs a fast refresh)
     },
     "gauges": {
