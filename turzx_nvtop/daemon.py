@@ -1,6 +1,7 @@
 """Main loop: follow nvstats, rotate screens, push only the changed pixels to the LCD."""
 import argparse
 import math
+import os
 import signal
 import threading
 import time
@@ -91,10 +92,70 @@ def connect(cfg, stop):
     return None
 
 
+class SleepGate:
+    """The machine is about to sleep or hibernate (SIGUSR1) / has woken up (SIGUSR2).
+
+    The systemd sleep hook (packaging/turzx-nvtop-sleep) sends these and, before sleeping, waits for the
+    ``<pidfile>.blank`` marker, so the panel is dark before the machine stops. A powered-but-idle
+    panel keeps its last image on screen for hours, which burns in."""
+
+    def __init__(self, wake, directory=None):
+        self.sleeping = threading.Event()
+        self.wake = wake                      # shared with the main loop: set to interrupt its waits
+        d = directory if directory is not None else os.environ.get("RUNTIME_DIRECTORY") or os.environ.get("XDG_RUNTIME_DIR")
+        d = d.split(":")[0] if d else None
+        self.pidfile = os.path.join(d, "turzx-nvtop.pid") if d else None
+        self.blank_marker = self.pidfile + ".blank" if self.pidfile else None
+
+    def enter(self, *_):
+        self.sleeping.set()
+        self.wake.set()
+
+    def leave(self, *_):
+        self.sleeping.clear()
+        self.wake.set()
+
+    def _touch(self, path, make):
+        if not path:
+            return
+        try:
+            if make:
+                open(path, "w").close()
+            elif os.path.exists(path):
+                os.remove(path)
+        except OSError:
+            pass                              # best effort: a missing marker only delays the hook (3 s cap)
+
+    def register(self):
+        if self.pidfile:
+            self._touch(self.blank_marker, False)
+            try:
+                with open(self.pidfile, "w") as f:
+                    f.write(str(os.getpid()))
+            except OSError:
+                self.pidfile = self.blank_marker = None
+
+    def unregister(self):
+        self._touch(self.blank_marker, False)
+        self._touch(self.pidfile, False)
+
+    def mark_blank(self, blank):
+        self._touch(self.blank_marker, blank)
+
+
 def run(cfg):
     stop = threading.Event()
+    wake = threading.Event()                  # set by stop and by the sleep signals: ends the loop's waits early
+    gate = SleepGate(wake)
+
+    def on_stop(*_):
+        stop.set()
+        wake.set()
     for sig in (signal.SIGINT, signal.SIGTERM):
-        signal.signal(sig, lambda *_: stop.set())
+        signal.signal(sig, on_stop)
+    signal.signal(signal.SIGUSR1, gate.enter)
+    signal.signal(signal.SIGUSR2, gate.leave)
+    gate.register()
     state = make_state(cfg)
     threading.Thread(target=follow, args=(cfg.s("nvstats", "url"), cfg.s("nvstats", "token"), state, stop),
                      daemon=True).start()
@@ -102,8 +163,35 @@ def run(cfg):
     sched = Scheduler(cfg)
     full_every = cfg.f("display", "full_refresh_seconds")
     lcd = None
+    blanked = False
     try:
         while not stop.is_set():
+            if gate.sleeping.is_set():
+                if not blanked:
+                    log("going to sleep: blanking the display")
+                    if lcd is not None:
+                        try:
+                            lcd.screen_off()
+                        except LcdError:
+                            pass              # a panel we cannot reach is not showing our image either
+                    blanked = True
+                    gate.mark_blank(True)
+                wake.wait(1.0)
+                wake.clear()
+                continue
+            if blanked:
+                blanked = False
+                gate.mark_blank(False)
+                log("woke up: restoring the display")
+                if lcd is not None:
+                    try:
+                        lcd.set_brightness(cfg.i("display", "brightness"))
+                        lcd.screen_on()
+                        disp.invalidate()     # the panel may have lost its picture; repaint everything
+                    except LcdError as e:
+                        log(f"lost the display ({e}); reconnecting")
+                        lcd.close()
+                        lcd = None
             if lcd is None:
                 lcd = connect(cfg, stop)
                 if lcd is None:
@@ -131,8 +219,10 @@ def run(cfg):
             took = time.monotonic() - t0
             if cfg.verbose:
                 log(f"{name}: {disp.stats_pixels} px in {disp.stats_rects} rects, {took * 1000:.0f} ms")
-            stop.wait(max(0.05, sched.refresh(name) - took))
+            wake.wait(max(0.05, sched.refresh(name) - took))
+            wake.clear()
     finally:
+        gate.unregister()
         if lcd is not None:
             try:
                 if cfg.b("display", "screen_off_on_exit"):

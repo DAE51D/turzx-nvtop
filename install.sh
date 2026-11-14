@@ -57,6 +57,10 @@ $SUDO udevadm control --reload-rules
 $SUDO udevadm trigger --subsystem-match=tty --action=add || true
 if [ "$udev_only" = 1 ]; then echo "udev rule installed ($rule). Re-plug the display if it was already connected."; exit 0; fi
 
+echo "==> sleep hook (blanks the display on suspend/hibernate: a powered idle panel burns in)"
+# a copy, root-owned: systemd runs it as root, so it must never be a symlink into a user-writable directory
+$SUDO install -D -m 0755 -o root -g root "$here/packaging/turzx-nvtop-sleep" /usr/lib/systemd/system-sleep/turzx-nvtop
+
 if [ "$mode" = user ]; then
   [ "$(id -u)" -ne 0 ] || { echo "run user mode without sudo" >&2; exit 1; }
   [ -w /dev/turzx-lcd ] 2>/dev/null || echo "note: /dev/turzx-lcd is not writable for you yet. Re-plug the display; on a headless box (no local login) add yourself to '${grp:-dialout}': sudo usermod -aG ${grp:-dialout} $USER, then log in again"
@@ -76,7 +80,7 @@ else
   [ -n "$grp" ] && usermod -aG "$grp" "$run_as"
   mkdir -p /etc/turzx-nvtop
   [ -f /etc/turzx-nvtop/config.ini ] || cp "$here/config.example.ini" /etc/turzx-nvtop/config.ini
-  sed -e "s|@PYTHON@|$py|" -e "s|@DIR@|$here|" -e "s|@SYSTEM_ONLY@|User=$run_as\nSupplementaryGroups=${grp:-dialout}|" -e "s|@TARGET@|multi-user.target|" \
+  sed -e "s|@PYTHON@|$py|" -e "s|@DIR@|$here|" -e "s|@SYSTEM_ONLY@|User=$run_as\nSupplementaryGroups=${grp:-dialout}\nRuntimeDirectory=turzx-nvtop|" -e "s|@TARGET@|multi-user.target|" \
     "$here/packaging/turzx-nvtop.service" > /etc/systemd/system/turzx-nvtop.service
   systemctl daemon-reload
   systemctl enable --now turzx-nvtop.service

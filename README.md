@@ -71,6 +71,17 @@ The file name matters: it has to sort before `73-seat-late.rules` (applies `uacc
 
 **Unplugging is fine.** The daemon logs it once, waits quietly, and redraws as soon as the display is back.
 
+**Sleep, hibernate and shutdown blank the display.** The panel is usually still powered over USB while the host is
+asleep or off, and left alone it would show one static image for hours, which burns in. So:
+
+- the installer adds a systemd sleep hook (`/usr/lib/systemd/system-sleep/turzx-nvtop`, a root-owned copy of
+  [packaging/turzx-nvtop-sleep](packaging/turzx-nvtop-sleep)). Before the machine sleeps or hibernates it tells the
+  daemon to blank the panel and waits (at most 3 s) until it is dark; after waking it restores brightness and repaints;
+- stopping the service (shutdown, reboot, `systemctl stop`) blanks it too (`screen_off_on_exit = yes`, the default).
+
+If the panel loses USB power during sleep, nothing is needed: it comes back when the host does. A crash or `kill -9` of
+the daemon cannot blank the panel; `python3 -m turzx_nvtop off` does it by hand.
+
 ## Troubleshooting
 
 | Symptom | What to try |
@@ -80,6 +91,7 @@ The file name matters: it has to sort before `73-seat-late.rules` (applies `uacc
 | Upside down | `rotation = 180` under `[display]`. |
 | `permission denied` on `/dev/turzx-lcd` | Re-plug after installing the rule. On a box with nobody logged in at the console, add the service user to `dialout` (or `uucp`). |
 | Garbled or shifted pixels | Run `python3 tests/hw_striptest.py` and see [docs/protocol](docs/protocol) (write framing). |
+| Display stays lit while the host sleeps | The sleep hook is missing: run `./install.sh` again and check `ls -l /usr/lib/systemd/system-sleep/turzx-nvtop`. The log says `going to sleep: blanking the display` when it fires. |
 | Logs | `journalctl --user -u turzx-nvtop -f` (or without `--user` for a system install). |
 
 ## Configure

@@ -1,0 +1,34 @@
+#!/bin/sh
+# systemd-sleep hook for turzx-nvtop: blank the Turzx display before the machine sleeps or hibernates,
+# and wake it afterwards. The panel stays powered over USB while the host sleeps; left alone it would
+# show one static image for hours and burn in.
+#
+# Installed (root-owned, mode 755) to /usr/lib/systemd/system-sleep/turzx-nvtop by install.sh.
+# systemd calls it as:  turzx-nvtop pre|post  suspend|hibernate|hybrid-sleep|suspend-then-hibernate
+#
+# Talks to the running daemon with SIGUSR1 (going to sleep) / SIGUSR2 (woke up) via its pidfile, and on "pre"
+# waits (max 3 s) for the daemon to confirm the panel is dark. Never fails, so it can never block a sleep.
+
+case "$1" in
+    pre)  sig=USR1 ;;
+    post) sig=USR2 ;;
+    *)    exit 0 ;;
+esac
+
+# (TURZX_NVTOP_PIDFILES overrides the search list; used by the tests)
+for pf in ${TURZX_NVTOP_PIDFILES:-/run/user/*/turzx-nvtop.pid /run/turzx-nvtop/turzx-nvtop.pid}; do
+    [ -r "$pf" ] || continue
+    pid=$(cat "$pf" 2>/dev/null)
+    case "$pid" in ''|*[!0-9]*) continue ;; esac
+    # a stale pidfile may name a reused pid: only signal our own daemon
+    tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -q 'turzx_nvtop' || continue
+    kill -"$sig" "$pid" 2>/dev/null || continue
+    if [ "$1" = pre ]; then
+        i=0
+        while [ "$i" -lt 30 ] && [ ! -e "$pf.blank" ]; do
+            sleep 0.1
+            i=$((i + 1))
+        done
+    fi
+done
+exit 0

@@ -14,7 +14,7 @@ DEFAULTS = {
         "settle_seconds": "2",            # wait after opening the port (a just-plugged panel may drop early data)
         "sync_on_start": "yes",           # flush zeros so a previously killed writer cannot wedge the panel
         "full_refresh_seconds": "600",    # repaint everything now and then to heal any glitch (0 = never)
-        "screen_off_on_exit": "no",
+        "screen_off_on_exit": "yes",       # blank the panel when the service stops (shutdown); a lit idle panel burns in
     },
     "screens": {
         "order": "graph, gauges",         # any of: graph, gauges, llm
