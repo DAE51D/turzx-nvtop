@@ -63,6 +63,13 @@ $SUDO install -D -m 0755 -o root -g root "$here/packaging/turzx-nvtop-sleep" /us
 
 if [ "$mode" = user ]; then
   [ "$(id -u)" -ne 0 ] || { echo "run user mode without sudo" >&2; exit 1; }
+  # the daemon is a user service and systemd freezes user.slice before it runs the sleep hook (see the file's comment)
+  echo "==> let user services run while the sleep hook blanks the display (systemd drop-ins)"
+  for s in suspend hibernate hybrid-sleep suspend-then-hibernate; do
+    $SUDO install -D -m 0644 -o root -g root "$here/packaging/turzx-nvtop-sleep.conf" \
+      "/etc/systemd/system/systemd-$s.service.d/turzx-nvtop.conf"
+  done
+  $SUDO systemctl daemon-reload
   [ -w /dev/turzx-lcd ] 2>/dev/null || echo "note: /dev/turzx-lcd is not writable for you yet. Re-plug the display; on a headless box (no local login) add yourself to '${grp:-dialout}': sudo usermod -aG ${grp:-dialout} $USER, then log in again"
   cfg="$HOME/.config/turzx-nvtop"; mkdir -p "$cfg"
   [ -f "$cfg/config.ini" ] || cp "$here/config.example.ini" "$cfg/config.ini"

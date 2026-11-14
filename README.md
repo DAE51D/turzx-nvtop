@@ -53,7 +53,7 @@ displays what it is given).
 
 ```sh
 git clone https://github.com/DAE51D/turzx-nvtop.git && cd turzx-nvtop
-./install.sh                                   # user service + udev rule (asks for sudo for the rule)
+./install.sh                                   # user service + udev rule + sleep hook (asks for sudo for those)
 sudo ./install.sh --system --run-as USER       # headless host: system service
 ```
 
@@ -77,6 +77,14 @@ asleep or off, and left alone it would show one static image for hours, which bu
 - the installer adds a systemd sleep hook (`/usr/lib/systemd/system-sleep/turzx-nvtop`, a root-owned copy of
   [packaging/turzx-nvtop-sleep](packaging/turzx-nvtop-sleep)). Before the machine sleeps or hibernates it tells the
   daemon to blank the panel and waits (at most 3 s) until it is dark; after waking it restores brightness and repaints;
+- in user-service mode the installer also adds a small systemd drop-in for the four sleep services
+  (`/etc/systemd/system/systemd-{suspend,hibernate,hybrid-sleep,suspend-then-hibernate}.service.d/turzx-nvtop.conf`,
+  from [packaging/turzx-nvtop-sleep.conf](packaging/turzx-nvtop-sleep.conf)) that sets
+  `SYSTEMD_SLEEP_FREEZE_USER_SESSIONS=0`. Without it systemd freezes your whole user session *before* it runs the hook,
+  so the daemon cannot react and the panel stays lit. This setting is machine-wide, not specific to this display: user
+  programs keep running until the hook finishes (the kernel still freezes everything just before the machine actually
+  sleeps). Delete the drop-ins to restore systemd's default. A `--system` install does not need or install it, since that
+  daemon is not part of a user session;
 - stopping the service (shutdown, reboot, `systemctl stop`) blanks it too (`screen_off_on_exit = yes`, the default).
 
 If the panel loses USB power during sleep, nothing is needed: it comes back when the host does. A crash or `kill -9` of
@@ -91,7 +99,7 @@ the daemon cannot blank the panel; `python3 -m turzx_nvtop off` does it by hand.
 | Upside down | `rotation = 180` under `[display]`. |
 | `permission denied` on `/dev/turzx-lcd` | Re-plug after installing the rule. On a box with nobody logged in at the console, add the service user to `dialout` (or `uucp`). |
 | Garbled or shifted pixels | Run `python3 tests/hw_striptest.py` and see [docs/protocol](docs/protocol) (write framing). |
-| Display stays lit while the host sleeps | The sleep hook is missing: run `./install.sh` again and check `ls -l /usr/lib/systemd/system-sleep/turzx-nvtop`. The log says `going to sleep: blanking the display` when it fires. |
+| Display stays lit while the host sleeps | The sleep hook or the systemd drop-in is missing: run `./install.sh` again, then check `ls -l /usr/lib/systemd/system-sleep/turzx-nvtop` and `systemctl show systemd-suspend.service -p Environment` (should list `SYSTEMD_SLEEP_FREEZE_USER_SESSIONS=0` in user mode). The log says `going to sleep: blanking the display` when it fires. |
 | Logs | `journalctl --user -u turzx-nvtop -f` (or without `--user` for a system install). |
 
 ## Configure
