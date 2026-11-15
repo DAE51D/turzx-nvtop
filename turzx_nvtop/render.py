@@ -18,15 +18,16 @@ DIM = (128, 140, 156)
 BAD = (235, 87, 87)
 OK = (62, 207, 142)
 
-COLORS = {                        # same palette as knvtop / onvtop
-    "gpu": (76, 139, 245),
-    "gtt": (230, 180, 40),
-    "tmp": (167, 120, 235),
-    "pwr": (62, 207, 142),
-    "cpu": (240, 138, 60),
-    "ram": (64, 190, 214),
+COLORS = {                        # identical to knvtop / onvtop / nvstats-service README (one palette everywhere)
+    "gpu": (0x4D, 0x9F, 0xFF),    # #4d9fff
+    "gtt": (0xE8, 0xC3, 0x3A),    # #e8c33a
+    "tmp": (0xB0, 0x7F, 0xE8),    # #b07fe8
+    "pwr": (0x3D, 0xDC, 0x84),    # #3ddc84
+    "cpu": (0xFF, 0x8C, 0x42),    # #ff8c42
+    "npu": (0xEC, 0x60, 0xA0),    # #ec60a0
+    "ram": (0x89, 0x92, 0x9C),    # #89929c
 }
-LABELS = {"gpu": "GPU", "gtt": "GTT", "tmp": "TMP", "pwr": "PWR", "cpu": "CPU", "ram": "RAM"}
+LABELS = {"gpu": "GPU", "gtt": "GTT", "tmp": "TMP", "pwr": "PWR", "cpu": "CPU", "ram": "RAM", "npu": "NPU"}
 
 STALE_AFTER = 5.0                 # seconds without a sample before we say NO DATA
 
@@ -74,6 +75,12 @@ class View:
         self.smooth = cfg.b("graph", "smooth")
         self.gpu = self.sample.get("gpu") or {}
         self.sys = self.sample.get("sys") or {}
+        # NPU: every NPU element is hidden unless the host reports one. Present but unreadable
+        # keeps the box and shows N/A, so the chip can be diagnosed later.
+        self.npu = self.sample.get("npu") or {}
+        self.has_npu = bool(self.npu.get("present"))
+        self.npu_ok = self.has_npu and bool(self.npu.get("readable"))
+        self.series = SERIES + ("npu",) if self.has_npu else SERIES
 
     # -- derived values (None when unknown) --
     def val(self, key):
@@ -92,10 +99,14 @@ class View:
             return s.get("cpu")
         if key == "ram":
             return s["ram_used"] / s["ram_total"] * 100 if s.get("ram_total") else None
+        if key == "npu":
+            return self.npu.get("util") if self.npu_ok else None
         return None
 
     def text(self, key):
         v = self.val(key)
+        if key == "npu" and self.live and self.has_npu and not self.npu_ok:
+            return "N/A"
         if v is None:
             return "--"
         if key == "tmp":
@@ -139,9 +150,9 @@ def render_graph(v):
     d = ImageDraw.Draw(img)
     header(d, v, v.gpu.get("name") or "GPU telemetry")
 
-    # legend: five coloured current values
-    slot = 464 / len(SERIES)
-    for i, k in enumerate(SERIES):
+    # legend: one coloured current value per series (NPU only on hosts that have one)
+    slot = 464 / len(v.series)
+    for i, k in enumerate(v.series):
         x = 8 + slot * i
         d.rounded_rectangle((x, 32, x + 3, 58), radius=1, fill=COLORS[k])
         d.text((x + 9, 31), LABELS[k], font=font(10), fill=DIM)
@@ -155,9 +166,9 @@ def render_graph(v):
         y = int(round((1 - frac) * (ph * S - 8 * S)) + 4 * S)
         g.line((0, y, pw * S, y), fill=GRID, width=S)
     top, span = 4 * S, ph * S - 8 * S
-    for k in reversed(SERIES):                       # draw GPU last so it sits on top
+    for k in reversed(v.series):                     # draw GPU last so it sits on top
         hist = v.history.get(k) or []
-        if len(hist) < 2:
+        if len(hist) < 2 or (k == "npu" and not v.npu_ok):
             continue
         times = v.history.get("t") or []
         # each point sits at x = right edge - age * px/s, so the whole line slides left continuously
@@ -167,7 +178,9 @@ def render_graph(v):
                for t, val in zip(times, hist)]
         if v.smooth:
             pts.append(((pw - 3) * S, pts[-1][1]))          # hold the newest value out to the edge
-        pts = [p for p in pts if p[0] >= 0]
+        # keep one point beyond the left edge so the line's end slides out instead of snapping
+        first = next((i for i, p in enumerate(pts) if p[0] >= 0), len(pts) - 1)
+        pts = pts[max(0, first - 1):]
         if len(pts) >= 2:
             g.line(pts, fill=COLORS[k], width=int(1.6 * S), joint="curve")
     img.paste(big.resize((pw, ph), Image.LANCZOS), (GX0, GY0))
@@ -214,6 +227,11 @@ def gauge_sub(v, key):
         return f"load {s.get('load1', 0):.2f}"
     if key == "ram":
         return f"{s['ram_used'] / 2**30:.1f} / {s['ram_total'] / 2**30:.1f} GiB" if s.get("ram_total") else ""
+    if key == "npu":
+        n = v.npu
+        if not v.npu_ok:
+            return (n.get("reason") or "unreadable").split(":")[0][:18]
+        return f"{n['clock_mhz']} MHz" if n.get("clock_mhz") else ""
     return ""
 
 
@@ -221,12 +239,17 @@ def render_gauges(v):
     img = Image.new("RGB", (480, 320), BG)
     d = ImageDraw.Draw(img)
     header(d, v, "system")
-    keys = ("gpu", "gtt", "tmp", "pwr", "cpu", "ram")
-    cw, ch, gap = 152, 126, 4
+    keys = ("gpu", "gtt", "tmp", "pwr", "cpu", "ram") + (("npu",) if v.has_npu else ())
+    # 3 columns normally; with an NPU there are 7 boxes, so 4 + 3 (the short row is centred)
+    cols = 4 if len(keys) > 6 else 3
+    gap = 4
+    cw, ch = (464 - gap * (cols - 1)) // cols, 126
     x0, y0 = 8, 32
     for i, k in enumerate(keys):
-        cx = x0 + (i % 3) * (cw + gap)
-        cy = y0 + (i // 3) * (ch + gap)
+        row_n = min(cols, len(keys) - (i // cols) * cols)
+        row_off = (cols - row_n) * (cw + gap) // 2
+        cx = x0 + row_off + (i % cols) * (cw + gap)
+        cy = y0 + (i // cols) * (ch + gap)
         col = COLORS[k]
         d.rounded_rectangle((cx, cy, cx + cw - 1, cy + ch - 1), radius=10, fill=PANEL,
                             outline=mix(col, PANEL, 0.62), width=1)
@@ -256,14 +279,15 @@ def render_gauges(v):
 
 
 # ---- screen 3: running LLMs ----------------------------------------------------------------
-ENGINE_COLORS = {"llama": COLORS["gpu"], "ollama": COLORS["pwr"], "vllm": COLORS["tmp"],
-                 "sglang": COLORS["cpu"], "tgi": COLORS["gtt"]}
+# same engine colors as knvtop / onvtop
+ENGINE_COLORS = {"llama": COLORS["gpu"], "ollama": COLORS["gtt"], "vllm": COLORS["tmp"],
+                 "sglang": COLORS["pwr"], "tgi": COLORS["cpu"], "flm": COLORS["npu"]}
 
 
 def llm_rows(v):
     rows = []
     llm = v.sample.get("llm") or {}
-    for engine in ("llama", "ollama", "vllm", "sglang", "tgi"):
+    for engine in ("llama", "ollama", "vllm", "sglang", "tgi", "flm"):
         for p in llm.get(engine) or []:
             name = p.get("alias") or p.get("model") or p.get("name") or engine
             name = os.path.basename(str(name))
@@ -276,6 +300,8 @@ def llm_rows(v):
                 bits.append(f"ctx {p['ctx']}")
             if p.get("parallel"):
                 bits.append(f"np {p['parallel']}")
+            if engine == "flm" and v.npu_ok and p.get("gpu_pct") is not None:
+                bits.append(f"npu {p['gpu_pct']:.0f}%")
             if p.get("cpu_pct"):
                 bits.append(f"cpu {p['cpu_pct']:.0f}%")
             rows.append((engine, name, "  ".join(bits)))
@@ -301,7 +327,11 @@ def render_llm(v):
         d.rounded_rectangle((8, y, 12, y + 40), radius=2, fill=col)
         d.text((22, y + 4), name[:34], font=font(15, True), fill=TEXT)
         d.text((22, y + 24), detail[:62], font=font(11), fill=DIM)
-        rtext(d, 464, y + 6, engine, font(11, True), col)
+        # only hosts with an NPU get a device tag, so GPU-only setups stay uncluttered
+        tag = engine
+        if v.has_npu:
+            tag = f"{engine} \u00b7 {'NPU' if engine == 'flm' else 'GPU'}"
+        rtext(d, 464, y + 6, tag, font(11, True), col)
         y += 45
     if len(rows) > 6:
         ctext(d, 240, 306, f"+{len(rows) - 6} more", font(10), DIM)

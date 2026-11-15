@@ -35,10 +35,14 @@ def demo_state(cfg):
                     "mem_used": 30000 + 20000 * math.sin(i / 53), "mem_total": 79872,
                     "temp": 52 + 14 * math.sin(i / 29), "power_w": 60 + 40 * math.sin(i / 11),
                     "power_cap_w": None, "clock_gfx": 2100, "clock_gfx_max": 2900},
+            "npu": {"present": True, "readable": True, "name": "RyzenAI-npu5", "util": max(0.0, 100 * math.sin(i / 23)),
+                    "clock_mhz": 1800},
             "sys": {"cpu": 20 + 15 * math.sin(i / 7), "ram_used": 40 * 2**30, "ram_total": 92 * 2**30, "load1": 1.2},
             "llm": {"llama": [{"name": "llama-server", "alias": "llama-3-8b-instruct", "port": "8082",
                                "rss_kb": 3400000, "ctx": 262144, "parallel": 2, "cpu_pct": 12.0}],
-                    "ollama": [{"name": "ollama", "port": None, "rss_kb": 40000}], "ollama_models": []},
+                    "ollama": [{"name": "ollama", "port": None, "rss_kb": 40000}], "ollama_models": [],
+                    "flm": [{"name": "flm-real", "model": "qwen3.5:9b", "port": "8001", "rss_kb": 2350000,
+                             "ctx": "131072", "gpu_pct": 84.0, "cpu_pct": 5.0}]},
         })
     return st
 

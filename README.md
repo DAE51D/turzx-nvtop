@@ -14,9 +14,11 @@ Screens (rotating; order and durations configurable):
 
 | Screen | Shows |
 | --- | --- |
-| `graph`  | GPU / GTT / TMP / PWR / CPU history lines with live values (default 15 s) |
-| `gauges` | six ring gauges: GPU, GTT, TMP, PWR, CPU, RAM (default 5 s) |
-| `llm`    | running llama.cpp / Ollama / vLLM / SGLang / TGI engines (off by default: add it to `order` under `[screens]`) |
+| `graph`  | GPU / GTT / TMP / PWR / CPU history lines with live values, plus NPU on hosts that have one (default 15 s) |
+| `gauges` | six ring gauges: GPU, GTT, TMP, PWR, CPU, RAM; a seventh NPU gauge appears only on hosts with an NPU (default 5 s) |
+| `llm`    | running llama.cpp / Ollama / vLLM / SGLang / TGI / FastFlowLM engines, tagged GPU or NPU on hosts with an NPU (off by default: add it to `order` under `[screens]`) |
+
+**NPU (optional).** With an NPU the graph gets a pink NPU line and the gauges an NPU ring; an NPU that exists but can't be read shows N/A. On hosts without one nothing changes. This needs nvstats-service 1.1.0 or newer. The colors and order match knvtop and onvtop.
 
 
 ## Turzx 3.5 USB LCD
@@ -41,11 +43,11 @@ roughly 500-2000 pixels and 20-40 ms per update, so the graph can scroll smoothl
 
 - Linux with Python 3 (written to the 3.8 feature level, developed on 3.14), plus Pillow and numpy
   (`apt install python3-pil python3-numpy`, `dnf install python3-pillow python3-numpy`, or `pip install pillow numpy`).
-- A running [nvstats-service](https://github.com/DAE51D/nvstats-service) **0.2.2 or newer with HTTP enabled**:
+- A running [nvstats-service](https://github.com/DAE51D/nvstats-service) **0.2.2 or newer (1.1.0 for the NPU) with HTTP enabled**:
   `./install.sh --http` in that repo. This installer cannot do that for you, but it checks and tells you if it is missing.
 - No distro-specific code: it talks to `/dev/ttyACM*` with plain termios.
 
-Tested on Kubuntu 26.04 with an AMD Ryzen AI Max+ 395 (nvstats-service 0.3.0, user-service mode). Written for but **not yet
+Tested on Kubuntu 26.04 with an AMD Ryzen AI Max+ 395 (nvstats-service 1.1.0, user-service mode). Written for but **not yet
 tested**: `--system` mode, distros that use the `uucp` group, and NVIDIA GPUs (nvstats supports them; this client only
 displays what it is given).
 
