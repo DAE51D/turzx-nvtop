@@ -6,6 +6,7 @@ import time
 import urllib.request
 
 SERIES = ("gpu", "gtt", "tmp", "pwr", "cpu")      # graph/legend order
+ALL_SERIES = SERIES + ("npu",)                    # npu is drawn only on hosts that report one
 
 
 def _num(v, default=0.0):
@@ -19,7 +20,7 @@ class State:
         self.lock = threading.Lock()
         self.sample = None
         self.last_rx = 0.0           # monotonic time of the last sample
-        self.history = {k: collections.deque(maxlen=history_len) for k in SERIES}
+        self.history = {k: collections.deque(maxlen=history_len) for k in ALL_SERIES}
         self.limits = limits         # dict: power_max_w, temp_max_c
         self.error = None
         self.times = collections.deque(maxlen=history_len)   # monotonic arrival time of each history point
@@ -35,6 +36,8 @@ class State:
             "tmp": _num(g.get("temp")) / self.limits["temp_max_c"] * 100.0,
             "pwr": _num(g.get("power_w")) / pmax * 100.0,
             "cpu": _num(sysd.get("cpu")),
+            # 0 when there is no NPU or it is unreadable; the renderer then draws no line
+            "npu": _num((s.get("npu") or {}).get("util")),
         }
         with self.lock:
             now = time.monotonic() if t is None else t
@@ -42,7 +45,7 @@ class State:
             self.last_rx = now
             self.times.append(now)
             self.error = None
-            for k in SERIES:
+            for k in ALL_SERIES:
                 self.history[k].append(max(0.0, min(100.0, norm[k])))
 
     def snapshot(self):
