@@ -1,4 +1,5 @@
 """Main loop: follow nvstats, rotate screens, push only the changed pixels to the LCD."""
+
 import argparse
 import math
 import os
@@ -6,7 +7,7 @@ import signal
 import threading
 import time
 
-from . import __version__
+from . import __version__, smartcool
 from .config import Config
 from .lcd import Display, LcdError, Turzx, find_port
 from .render import RENDERERS, View
@@ -21,7 +22,10 @@ def make_state(cfg):
     pw = 471 - 8 + 1
     # enough samples to fill the graph at the fastest rate nvstats allows (0.25 s)
     hist_len = int(pw / max(0.1, cfg.f("graph", "px_per_second")) / 0.25) + 2
-    limits = {"power_max_w": cfg.f("limits", "power_max_w"), "temp_max_c": cfg.f("limits", "temp_max_c")}
+    limits = {
+        "power_max_w": cfg.f("limits", "power_max_w"),
+        "temp_max_c": cfg.f("limits", "temp_max_c"),
+    }
     return State(limits, hist_len)
 
 
@@ -29,21 +33,65 @@ def demo_state(cfg):
     """Synthetic data so screens can be previewed without nvstats or hardware."""
     st = make_state(cfg)
     for i in range(240):
-        st.push(t=time.monotonic() - (239 - i), s={
-            "host": "DEMO-HOST", "seq": i, "version": "0.3.0",
-            "gpu": {"name": "AMD Radeon 8060S Graphics", "driver": "7.1.9", "util": 50 + 45 * math.sin(i / 17),
-                    "mem_used": 30000 + 20000 * math.sin(i / 53), "mem_total": 79872,
-                    "temp": 52 + 14 * math.sin(i / 29), "power_w": 60 + 40 * math.sin(i / 11),
-                    "power_cap_w": None, "clock_gfx": 2100, "clock_gfx_max": 2900},
-            "npu": {"present": True, "readable": True, "name": "RyzenAI-npu5", "util": max(0.0, 100 * math.sin(i / 23)),
-                    "clock_mhz": 1800},
-            "sys": {"cpu": 20 + 15 * math.sin(i / 7), "ram_used": 40 * 2**30, "ram_total": 92 * 2**30, "load1": 1.2},
-            "llm": {"llama": [{"name": "llama-server", "alias": "llama-3-8b-instruct", "port": "8082",
-                               "rss_kb": 3400000, "ctx": 262144, "parallel": 2, "cpu_pct": 12.0}],
-                    "ollama": [{"name": "ollama", "port": None, "rss_kb": 40000}], "ollama_models": [],
-                    "flm": [{"name": "flm-real", "model": "qwen3.5:9b", "port": "8001", "rss_kb": 2350000,
-                             "ctx": "131072", "gpu_pct": 84.0, "cpu_pct": 5.0}]},
-        })
+        st.push(
+            t=time.monotonic() - (239 - i),
+            s={
+                "host": "DEMO-HOST",
+                "seq": i,
+                "version": "0.3.0",
+                "gpu": {
+                    "name": "AMD Radeon 8060S Graphics",
+                    "driver": "7.1.9",
+                    "util": 50 + 45 * math.sin(i / 17),
+                    "mem_used": 30000 + 20000 * math.sin(i / 53),
+                    "mem_total": 79872,
+                    "temp": 52 + 14 * math.sin(i / 29),
+                    "power_w": 60 + 40 * math.sin(i / 11),
+                    "power_cap_w": None,
+                    "clock_gfx": 2100,
+                    "clock_gfx_max": 2900,
+                },
+                "npu": {
+                    "present": True,
+                    "readable": True,
+                    "name": "RyzenAI-npu5",
+                    "util": max(0.0, 100 * math.sin(i / 23)),
+                    "clock_mhz": 1800,
+                },
+                "sys": {
+                    "cpu": 20 + 15 * math.sin(i / 7),
+                    "ram_used": 40 * 2**30,
+                    "ram_total": 92 * 2**30,
+                    "load1": 1.2,
+                },
+                "llm": {
+                    "llama": [
+                        {
+                            "name": "llama-server",
+                            "alias": "llama-3-8b-instruct",
+                            "port": "8082",
+                            "rss_kb": 3400000,
+                            "ctx": 262144,
+                            "parallel": 2,
+                            "cpu_pct": 12.0,
+                        }
+                    ],
+                    "ollama": [{"name": "ollama", "port": None, "rss_kb": 40000}],
+                    "ollama_models": [],
+                    "flm": [
+                        {
+                            "name": "flm-real",
+                            "model": "qwen3.5:9b",
+                            "port": "8001",
+                            "rss_kb": 2350000,
+                            "ctx": "131072",
+                            "gpu_pct": 84.0,
+                            "cpu_pct": 5.0,
+                        }
+                    ],
+                },
+            },
+        )
     return st
 
 
@@ -65,28 +113,65 @@ class Scheduler:
             return self.names[self.idx], True
         return name, False
 
+    def countdown(self, now):
+        """Fraction of the current screen's time left, or None (single screen / bar disabled)."""
+        if len(self.names) < 2 or not self.cfg.b("screens", "countdown_bar"):
+            return None
+        dur = self.cfg.f("screens", f"{self.names[self.idx]}_seconds")
+        return 1.0 - (now - self.since) / dur if dur > 0 else None
+
     def refresh(self, name):
         return self.cfg.f(name, "refresh_seconds")
+
+
+def open_lcd(cfg):
+    """Open whichever supported panel is present: the Turzx (serial) or the SmartCool (USB bulk).
+    ``[display] backend`` pins one; ``auto`` prefers the Turzx if both are plugged in."""
+    backend = cfg.s("display", "backend")
+    port_cfg = cfg.s("display", "port")
+    path = None if port_cfg == "auto" else port_cfg
+    if backend == "auto":
+        if path is not None or find_port() is not None:
+            backend = "turzx"
+        elif smartcool.find_device() is not None:
+            backend = "smartcool"
+        else:
+            raise LcdError(
+                "display not found (Turzx 1a86:5722 or SmartCool 2a55:9990); waiting for it to be plugged in"
+            )
+    if backend == "smartcool":
+        return smartcool.SmartCool()
+    if path is None and find_port() is None:
+        raise LcdError(
+            "display not found (USB 1a86:5722); waiting for it to be plugged in"
+        )
+    return Turzx(path)
+
+
+def make_display(lcd):
+    return (
+        smartcool.FullFrameDisplay(lcd)
+        if isinstance(lcd, smartcool.SmartCool)
+        else Display(lcd)
+    )
 
 
 def connect(cfg, stop):
     """Open the panel, retrying until it appears. Logs only when the situation changes
     (unplugged, permission denied, ...), not on every retry, so an unplugged screen is quiet."""
-    port_cfg = cfg.s("display", "port")
     last_msg = None
     while not stop.is_set():
         try:
-            path = None if port_cfg == "auto" else port_cfg
-            if path is None and find_port() is None:
-                raise LcdError("display not found (USB 1a86:5722); waiting for it to be plugged in")
-            lcd = Turzx(path)
+            lcd = open_lcd(cfg)
             if cfg.b("display", "sync_on_start"):
                 lcd.sync()
-            lcd.set_orientation(cfg.orientation())
+            lcd.set_orientation(cfg.orientation("smartcool" if isinstance(lcd, smartcool.SmartCool) else "turzx"))
             lcd.set_brightness(cfg.i("display", "brightness"))
             lcd.screen_on()
             log(f"display ready on {lcd.path}")
-            stop.wait(cfg.f("display", "settle_seconds"))   # a freshly enumerated panel may drop early data
+            stop.wait(
+                cfg.f("display", "settle_seconds")
+            )  # a freshly enumerated panel may drop early data
             return lcd
         except LcdError as e:
             if str(e) != last_msg:
@@ -105,8 +190,13 @@ class SleepGate:
 
     def __init__(self, wake, directory=None):
         self.sleeping = threading.Event()
-        self.wake = wake                      # shared with the main loop: set to interrupt its waits
-        d = directory if directory is not None else os.environ.get("RUNTIME_DIRECTORY") or os.environ.get("XDG_RUNTIME_DIR")
+        self.wake = wake  # shared with the main loop: set to interrupt its waits
+        d = (
+            directory
+            if directory is not None
+            else os.environ.get("RUNTIME_DIRECTORY")
+            or os.environ.get("XDG_RUNTIME_DIR")
+        )
         d = d.split(":")[0] if d else None
         self.pidfile = os.path.join(d, "turzx-nvtop.pid") if d else None
         self.blank_marker = self.pidfile + ".blank" if self.pidfile else None
@@ -128,7 +218,7 @@ class SleepGate:
             elif os.path.exists(path):
                 os.remove(path)
         except OSError:
-            pass                              # best effort: a missing marker only delays the hook (3 s cap)
+            pass  # best effort: a missing marker only delays the hook (3 s cap)
 
     def register(self):
         if self.pidfile:
@@ -149,21 +239,29 @@ class SleepGate:
 
 def run(cfg):
     stop = threading.Event()
-    wake = threading.Event()                  # set by stop and by the sleep signals: ends the loop's waits early
+    wake = (
+        threading.Event()
+    )  # set by stop and by the sleep signals: ends the loop's waits early
     gate = SleepGate(wake)
 
     def on_stop(*_):
         stop.set()
         wake.set()
+
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, on_stop)
     signal.signal(signal.SIGUSR1, gate.enter)
     signal.signal(signal.SIGUSR2, gate.leave)
     gate.register()
     state = make_state(cfg)
-    threading.Thread(target=follow, args=(cfg.s("nvstats", "url"), cfg.s("nvstats", "token"), state, stop),
-                     daemon=True).start()
-    log(f"v{__version__}, nvstats at {cfg.s('nvstats', 'url')}, config {cfg.path or '(defaults)'}")
+    threading.Thread(
+        target=follow,
+        args=(cfg.s("nvstats", "url"), cfg.s("nvstats", "token"), state, stop),
+        daemon=True,
+    ).start()
+    log(
+        f"v{__version__}, nvstats at {cfg.s('nvstats', 'url')}, config {cfg.path or '(defaults)'}"
+    )
     sched = Scheduler(cfg)
     full_every = cfg.f("display", "full_refresh_seconds")
     lcd = None
@@ -177,7 +275,7 @@ def run(cfg):
                         try:
                             lcd.screen_off()
                         except LcdError:
-                            pass              # a panel we cannot reach is not showing our image either
+                            pass  # a panel we cannot reach is not showing our image either
                     blanked = True
                     gate.mark_blank(True)
                 wake.wait(1.0)
@@ -191,7 +289,7 @@ def run(cfg):
                     try:
                         lcd.set_brightness(cfg.i("display", "brightness"))
                         lcd.screen_on()
-                        disp.invalidate()     # the panel may have lost its picture; repaint everything
+                        disp.invalidate()  # the panel may have lost its picture; repaint everything
                     except LcdError as e:
                         log(f"lost the display ({e}); reconnecting")
                         lcd.close()
@@ -200,19 +298,23 @@ def run(cfg):
                 lcd = connect(cfg, stop)
                 if lcd is None:
                     break
-                disp = Display(lcd)
+                disp = make_display(lcd)
                 last_full = time.monotonic()
-                repaint_at = last_full + cfg.f("display", "settle_seconds") + 3.0   # one more full paint, see config
+                repaint_at = (
+                    last_full + cfg.f("display", "settle_seconds") + 3.0
+                )  # one more full paint, see config
             t0 = time.monotonic()
             name, switched = sched.current(t0)
             if repaint_at and t0 >= repaint_at:
-                disp.invalidate()      # first frames after a plug-in can be lost; repaint everything once
+                disp.invalidate()  # first frames after a plug-in can be lost; repaint everything once
                 repaint_at = 0
             if full_every and t0 - last_full >= full_every:
                 disp.invalidate()
                 last_full = t0
             sample, hist, age, err = state.snapshot()
-            img = RENDERERS[name](View(cfg, sample, hist, age, err))
+            view = View(cfg, sample, hist, age, err)
+            view.countdown = sched.countdown(t0)
+            img = RENDERERS[name](view)
             try:
                 disp.present(img)
             except LcdError as e:
@@ -222,7 +324,9 @@ def run(cfg):
                 continue
             took = time.monotonic() - t0
             if cfg.verbose:
-                log(f"{name}: {disp.stats_pixels} px in {disp.stats_rects} rects, {took * 1000:.0f} ms")
+                log(
+                    f"{name}: {disp.stats_pixels} px in {disp.stats_rects} rects, {took * 1000:.0f} ms"
+                )
             wake.wait(max(0.05, sched.refresh(name) - took))
             wake.clear()
     finally:
@@ -243,14 +347,19 @@ def preview(cfg, screen, out, demo):
     else:
         state = make_state(cfg)
         stop = threading.Event()
-        threading.Thread(target=follow, args=(cfg.s("nvstats", "url"), cfg.s("nvstats", "token"), state, stop),
-                         daemon=True).start()
+        threading.Thread(
+            target=follow,
+            args=(cfg.s("nvstats", "url"), cfg.s("nvstats", "token"), state, stop),
+            daemon=True,
+        ).start()
         for _ in range(100):
             if state.sample:
                 break
             time.sleep(0.1)
         if not state.sample:
-            raise SystemExit(f"no sample from {cfg.s('nvstats', 'url')} ({state.error}); try --demo")
+            raise SystemExit(
+                f"no sample from {cfg.s('nvstats', 'url')} ({state.error}); try --demo"
+            )
         stop.set()
     sample, hist, age, err = state.snapshot()
     RENDERERS[screen](View(cfg, sample, hist, age, err)).save(out)
@@ -258,7 +367,7 @@ def preview(cfg, screen, out, demo):
 
 
 def lcd_cmd(cfg, what):
-    lcd = Turzx(None if cfg.s("display", "port") == "auto" else cfg.s("display", "port"))
+    lcd = open_lcd(cfg)
     try:
         if what == "sync":
             lcd.sync()
@@ -272,17 +381,38 @@ def lcd_cmd(cfg, what):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="turzx-nvtop", description=__doc__)
-    ap.add_argument("-c", "--config", help="config.ini path (default: ~/.config/turzx-nvtop/config.ini, /etc/turzx-nvtop/config.ini)")
+    ap.add_argument(
+        "-c",
+        "--config",
+        help="config.ini path (default: ~/.config/turzx-nvtop/config.ini, /etc/turzx-nvtop/config.ini)",
+    )
     ap.add_argument("--version", action="version", version=f"turzx-nvtop {__version__}")
-    ap.add_argument("-v", "--verbose", action="store_true", help="log pixels/rects/ms for every frame")
-    ap.add_argument("--rotate", choices=("0", "180"), help="override [display] rotation")
+    ap.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="log pixels/rects/ms for every frame",
+    )
+    ap.add_argument(
+        "--rotate", choices=("0", "180"), help="override [display] rotation"
+    )
     sub = ap.add_subparsers(dest="cmd")
     sub.add_parser("run", help="run the display loop (default)")
-    p = sub.add_parser("preview", help="render a screen to a PNG without touching the hardware")
+    p = sub.add_parser(
+        "preview", help="render a screen to a PNG without touching the hardware"
+    )
     p.add_argument("screen", choices=sorted(RENDERERS))
     p.add_argument("out", nargs="?", default="preview.png")
-    p.add_argument("--demo", action="store_true", help="use synthetic data instead of nvstats-service")
-    for n, h in (("sync", "flush zeros to un-wedge a desynchronised panel"), ("on", "screen on"), ("off", "screen off")):
+    p.add_argument(
+        "--demo",
+        action="store_true",
+        help="use synthetic data instead of nvstats-service",
+    )
+    for n, h in (
+        ("sync", "flush zeros to un-wedge a desynchronised panel"),
+        ("on", "screen on"),
+        ("off", "screen off"),
+    ):
         sub.add_parser(n, help=h)
     a = ap.parse_args(argv)
     cfg = Config(a.config)

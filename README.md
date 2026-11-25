@@ -20,10 +20,24 @@ Screens (rotating; order and durations configurable):
 
 **NPU (optional).** With an NPU the graph gets a pink NPU line and the gauges an NPU ring; an NPU that exists but can't be read shows N/A. On hosts without one nothing changes. This needs nvstats-service 1.1.0 or newer. The colors and order match knvtop and onvtop.
 
+**Countdown bar.** When more than one screen rotates, a thin line along the bottom edge shrinks left to right until the next screen
+(`countdown_bar = no` under `[screens]` turns it off). Memory used is shown to three decimals (`0.127/78.0 GiB`) so small changes are visible.
 
-## Turzx 3.5 USB LCD
 
-You can [find these](https://www.ebay.com/sch/i.html?_nkw=3.5%20Inch%20Type%E2%80%91C%20IPS%20Secondary%20Screen%20320*480%20USB&_sacat=0&_sop=15) on eBay for $20 or so. [This is a nice kit](https://www.ebay.com/itm/145206664084?var=444390238227) too.
+## Supported panels
+
+| Panel | USB ID | Link | Speed |
+| --- | --- | --- | --- |
+| Turzx / Turing Smart Screen 3.5" rev A (320x480) | `1a86:5722` | USB serial (CDC-ACM) | ~150k px/s, partial updates, brightness control |
+| SmartCool / QTKeJi 3.5" (480x320) | `2a55:9990` | USB bulk via libusb (`apt install python3-usb`) | whole frames only, ~2.4 fps, no brightness control |
+
+You can [find the Turzx](https://www.ebay.com/sch/i.html?_nkw=3.5%20Inch%20Type%E2%80%91C%20IPS%20Secondary%20Screen%20320*480%20USB&_sacat=0&_sop=15) on eBay for $20 or so.
+**Check the USB ID before buying:** many listings for "AIDA64 secondary screens" are the SmartCool, which shows a built-in
+demo screen as soon as it is plugged in (the Turzx shows nothing). Both work, but the SmartCool's firmware cannot do partial
+updates, so the graph looks a little steppier. See [docs/protocol/05-smartcool.md](docs/protocol/05-smartcool.md).
+
+`[display] backend = auto` (default) uses whichever is plugged in, preferring the Turzx if both are; set `turzx` or
+`smartcool` to pin one. The SmartCool needs the udev rule from `./install.sh`, which also keeps USB autosuspend off.
 
 
 ## Smoothness
@@ -34,7 +48,7 @@ for livelier numbers run it with `./install.sh --http --poll 0.5` (nvstats-servi
 
 ## How it stays fast
 
-The panel takes ~1.8 s for a full frame and repaints top to bottom. So each screen is rendered in memory,
+(Turzx; the SmartCool always sends a whole ~0.42 s frame, and only when the image changed.) The panel takes ~1.8 s for a full frame and repaints top to bottom. So each screen is rendered in memory,
 compared with a shadow copy of what the panel shows, and only the changed rectangles are sent. Steady state is
 roughly 500-2000 pixels and 20-40 ms per update, so the graph can scroll smoothly at 2 frames a second. A screen
 *switch* is a near-full repaint (~1.6 s), which is why switches are slow and visible.
@@ -107,7 +121,7 @@ the daemon cannot blank the panel; `python3 -m turzx_nvtop off` does it by hand.
 ## Configure
 
 `~/.config/turzx-nvtop/config.ini` (or `/etc/turzx-nvtop/config.ini`); see [config.example.ini](config.example.ini).
-Upside down because of your cable? `rotation = 180` under `[display]` (or `--rotate 180`). Landscape only.
+Upside down because of your cable? `rotation = 180` under `[display]` (or `--rotate 180`). Landscape only. A USB cradle that plugs in at the bottom instead of the side flips the panel, so each panel has its own setting: `rotation` (Turzx) and `rotation_smartcool` (empty = same as `rotation`).
 
 ## Commands
 

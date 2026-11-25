@@ -1,4 +1,5 @@
 """Screen renderers. Each returns a full-size PIL image; Display.present() works out what changed."""
+
 import functools
 import os
 import time
@@ -18,18 +19,26 @@ DIM = (128, 140, 156)
 BAD = (235, 87, 87)
 OK = (62, 207, 142)
 
-COLORS = {                        # identical to knvtop / onvtop / nvstats-service README (one palette everywhere)
-    "gpu": (0x4D, 0x9F, 0xFF),    # #4d9fff
-    "gtt": (0xE8, 0xC3, 0x3A),    # #e8c33a
-    "tmp": (0xB0, 0x7F, 0xE8),    # #b07fe8
-    "pwr": (0x3D, 0xDC, 0x84),    # #3ddc84
-    "cpu": (0xFF, 0x8C, 0x42),    # #ff8c42
-    "npu": (0xEC, 0x60, 0xA0),    # #ec60a0
-    "ram": (0x89, 0x92, 0x9C),    # #89929c
+COLORS = {  # identical to knvtop / onvtop / nvstats-service README (one palette everywhere)
+    "gpu": (0x4D, 0x9F, 0xFF),  # #4d9fff
+    "gtt": (0xE8, 0xC3, 0x3A),  # #e8c33a
+    "tmp": (0xB0, 0x7F, 0xE8),  # #b07fe8
+    "pwr": (0x3D, 0xDC, 0x84),  # #3ddc84
+    "cpu": (0xFF, 0x8C, 0x42),  # #ff8c42
+    "npu": (0xEC, 0x60, 0xA0),  # #ec60a0
+    "ram": (0x89, 0x92, 0x9C),  # #89929c
 }
-LABELS = {"gpu": "GPU", "gtt": "GTT", "tmp": "TMP", "pwr": "PWR", "cpu": "CPU", "ram": "RAM", "npu": "NPU"}
+LABELS = {
+    "gpu": "GPU",
+    "gtt": "GTT",
+    "tmp": "TMP",
+    "pwr": "PWR",
+    "cpu": "CPU",
+    "ram": "RAM",
+    "npu": "NPU",
+}
 
-STALE_AFTER = 5.0                 # seconds without a sample before we say NO DATA
+STALE_AFTER = 5.0  # seconds without a sample before we say NO DATA
 
 
 @functools.lru_cache(maxsize=None)
@@ -54,8 +63,17 @@ def rtext(d, rx, y, s, f, fill):
     d.text((rx, y), s, font=f, fill=fill, anchor="rt")
 
 
-def gib(v_mib):
-    return f"{v_mib / 1024:.1f}"
+def gib(v_mib, nd=1):
+    return f"{v_mib / 1024:.{nd}f}"
+
+
+def draw_countdown(d, v):
+    """Thin bar along the bottom edge that recedes left-to-right (its left end moves right, opposite to the graph's scroll) until the screen rotates."""
+    if v.countdown is None:
+        return
+    w = int(round(480 * max(0.0, min(1.0, v.countdown))))
+    if w > 0:
+        d.rectangle((480 - w, 318, 479, 319), fill=DIM)
 
 
 class View:
@@ -70,8 +88,11 @@ class View:
         self.mem_label = cfg.s("limits", "mem_label")
         self.power_max = cfg.f("limits", "power_max_w")
         self.temp_max = cfg.f("limits", "temp_max_c")
-        self.pps = cfg.f("graph", "px_per_second")      # graph scroll speed, pixels per second
+        self.pps = cfg.f(
+            "graph", "px_per_second"
+        )  # graph scroll speed, pixels per second
         self.now = time.monotonic()
+        self.countdown = None  # fraction of this screen's time left; None = no bar
         self.smooth = cfg.b("graph", "smooth")
         self.gpu = self.sample.get("gpu") or {}
         self.sys = self.sample.get("sys") or {}
@@ -130,7 +151,13 @@ def header(d, v, title):
     d.rectangle((0, 0, 479, 25), fill=PANEL)
     host = v.sample.get("host") or "nvtop"
     d.text((10, 13), host, font=font(14, True), fill=TEXT, anchor="lm")
-    d.text((10 + d.textlength(host, font=font(14, True)) + 10, 14), title, font=font(11), fill=DIM, anchor="lm")
+    d.text(
+        (10 + d.textlength(host, font=font(14, True)) + 10, 14),
+        title,
+        font=font(11),
+        fill=DIM,
+        anchor="lm",
+    )
     if v.live:
         label, col = "LIVE", OK
     else:
@@ -142,7 +169,7 @@ def header(d, v, title):
 
 
 # ---- screen 1: graph -----------------------------------------------------------------------
-GX0, GY0, GX1, GY1 = 8, 64, 471, 282          # graph panel (inclusive)
+GX0, GY0, GX1, GY1 = 8, 64, 471, 282  # graph panel (inclusive)
 
 
 def render_graph(v):
@@ -156,7 +183,12 @@ def render_graph(v):
         x = 8 + slot * i
         d.rounded_rectangle((x, 32, x + 3, 58), radius=1, fill=COLORS[k])
         d.text((x + 9, 31), LABELS[k], font=font(10), fill=DIM)
-        d.text((x + 9, 42), v.text(k), font=font(17, True), fill=COLORS[k] if v.live else DIM)
+        d.text(
+            (x + 9, 42),
+            v.text(k),
+            font=font(17, True),
+            fill=COLORS[k] if v.live else DIM,
+        )
 
     # graph panel, drawn 3x and scaled down for smooth lines
     pw, ph, S = GX1 - GX0 + 1, GY1 - GY0 + 1, 3
@@ -166,7 +198,7 @@ def render_graph(v):
         y = int(round((1 - frac) * (ph * S - 8 * S)) + 4 * S)
         g.line((0, y, pw * S, y), fill=GRID, width=S)
     top, span = 4 * S, ph * S - 8 * S
-    for k in reversed(v.series):                     # draw GPU last so it sits on top
+    for k in reversed(v.series):  # draw GPU last so it sits on top
         hist = v.history.get(k) or []
         if len(hist) < 2 or (k == "npu" and not v.npu_ok):
             continue
@@ -174,13 +206,20 @@ def render_graph(v):
         # each point sits at x = right edge - age * px/s, so the whole line slides left continuously
         # and rigidly between samples; with smooth=no it only moves when a sample arrives
         newest = times[-1] if times else 0
-        pts = [((pw - 3 - ((v.now if v.smooth else newest) - t) * v.pps) * S, top + (1 - val / 100) * span)
-               for t, val in zip(times, hist)]
+        pts = [
+            (
+                (pw - 3 - ((v.now if v.smooth else newest) - t) * v.pps) * S,
+                top + (1 - val / 100) * span,
+            )
+            for t, val in zip(times, hist)
+        ]
         if v.smooth:
-            pts.append(((pw - 3) * S, pts[-1][1]))          # hold the newest value out to the edge
+            pts.append(
+                ((pw - 3) * S, pts[-1][1])
+            )  # hold the newest value out to the edge
         # keep one point beyond the left edge so the line's end slides out instead of snapping
         first = next((i for i, p in enumerate(pts) if p[0] >= 0), len(pts) - 1)
-        pts = pts[max(0, first - 1):]
+        pts = pts[max(0, first - 1) :]
         if len(pts) >= 2:
             g.line(pts, fill=COLORS[k], width=int(1.6 * S), joint="curve")
     img.paste(big.resize((pw, ph), Image.LANCZOS), (GX0, GY0))
@@ -188,12 +227,15 @@ def render_graph(v):
     # footer
     s, gp = v.sys, v.gpu
     if v.live and gp.get("mem_total") and s.get("ram_total"):
-        foot = (f"{v.mem_label} {gib(gp['mem_used'])}/{gib(gp['mem_total'])} GiB    "
-                f"sys {s['ram_used'] / 2**30:.1f}/{s['ram_total'] / 2**30:.1f} GiB    "
-                f"load {s.get('load1', 0):.2f}")
+        foot = (
+            f"{v.mem_label} {gib(gp['mem_used'], 3)}/{gib(gp['mem_total'])} GiB    "
+            f"sys {s['ram_used'] / 2**30:.1f}/{s['ram_total'] / 2**30:.1f} GiB    "
+            f"load {s.get('load1', 0):.2f}"
+        )
     else:
         foot = v.error or "waiting for nvstats-service..."
     ctext(d, 240, 292, foot, font(12), DIM)
+    draw_countdown(d, v)
     return img
 
 
@@ -218,7 +260,11 @@ def gauge_sub(v, key):
     if key == "gpu":
         return f"{g['clock_gfx']} MHz" if g.get("clock_gfx") else ""
     if key == "gtt":
-        return f"{gib(g['mem_used'])} / {gib(g['mem_total'])} GiB" if g.get("mem_total") else ""
+        return (
+            f"{gib(g['mem_used'], 3)} / {gib(g['mem_total'])} GiB"
+            if g.get("mem_total")
+            else ""
+        )
     if key == "tmp":
         return f"limit {v.temp_max:.0f}°C"
     if key == "pwr":
@@ -226,7 +272,11 @@ def gauge_sub(v, key):
     if key == "cpu":
         return f"load {s.get('load1', 0):.2f}"
     if key == "ram":
-        return f"{s['ram_used'] / 2**30:.1f} / {s['ram_total'] / 2**30:.1f} GiB" if s.get("ram_total") else ""
+        return (
+            f"{s['ram_used'] / 2**30:.1f} / {s['ram_total'] / 2**30:.1f} GiB"
+            if s.get("ram_total")
+            else ""
+        )
     if key == "npu":
         n = v.npu
         if not v.npu_ok:
@@ -251,8 +301,13 @@ def render_gauges(v):
         cx = x0 + row_off + (i % cols) * (cw + gap)
         cy = y0 + (i // cols) * (ch + gap)
         col = COLORS[k]
-        d.rounded_rectangle((cx, cy, cx + cw - 1, cy + ch - 1), radius=10, fill=PANEL,
-                            outline=mix(col, PANEL, 0.62), width=1)
+        d.rounded_rectangle(
+            (cx, cy, cx + cw - 1, cy + ch - 1),
+            radius=10,
+            fill=PANEL,
+            outline=mix(col, PANEL, 0.62),
+            width=1,
+        )
         diam = 78
         rx, ry = cx + (cw - diam) // 2, cy + 8
         r = ring(diam, 9, v.frac(k), col)
@@ -260,9 +315,21 @@ def render_gauges(v):
         # centre the digit height (measured on "0", so it is stable between values) on the ring centre
         vf = font(21, True)
         t, b = d.textbbox((0, 0), "0", font=vf, anchor="ls")[1::2]
-        d.text((cx + cw // 2, round(ry + diam / 2 - (t + b) / 2)), v.text(k), font=vf,
-               fill=TEXT if v.live else DIM, anchor="ms")
-        ctext(d, cx + cw // 2, cy + 90, LABELS[k] if k != "gtt" else v.mem_label, font(12, True), col)
+        d.text(
+            (cx + cw // 2, round(ry + diam / 2 - (t + b) / 2)),
+            v.text(k),
+            font=vf,
+            fill=TEXT if v.live else DIM,
+            anchor="ms",
+        )
+        ctext(
+            d,
+            cx + cw // 2,
+            cy + 90,
+            LABELS[k] if k != "gtt" else v.mem_label,
+            font(12, True),
+            col,
+        )
         ctext(d, cx + cw // 2, cy + 106, gauge_sub(v, k), font(10), DIM)
     if v.live:
         bits = []
@@ -275,13 +342,20 @@ def render_gauges(v):
     else:
         foot = v.error or ""
     ctext(d, 240, 302, foot, font(10), DIM)
+    draw_countdown(d, v)
     return img
 
 
 # ---- screen 3: running LLMs ----------------------------------------------------------------
 # same engine colors as knvtop / onvtop
-ENGINE_COLORS = {"llama": COLORS["gpu"], "ollama": COLORS["gtt"], "vllm": COLORS["tmp"],
-                 "sglang": COLORS["pwr"], "tgi": COLORS["cpu"], "flm": COLORS["npu"]}
+ENGINE_COLORS = {
+    "llama": COLORS["gpu"],
+    "ollama": COLORS["gtt"],
+    "vllm": COLORS["tmp"],
+    "sglang": COLORS["pwr"],
+    "tgi": COLORS["cpu"],
+    "flm": COLORS["npu"],
+}
 
 
 def llm_rows(v):
@@ -309,7 +383,13 @@ def llm_rows(v):
         if isinstance(m, dict):
             name = m.get("name") or m.get("model") or "model"
             size = m.get("size_vram") or m.get("size")
-            rows.append(("ollama", name, f"loaded  {size / 2**30:.1f} GiB" if size else "loaded"))
+            rows.append(
+                (
+                    "ollama",
+                    name,
+                    f"loaded  {size / 2**30:.1f} GiB" if size else "loaded",
+                )
+            )
     return rows
 
 
@@ -319,7 +399,14 @@ def render_llm(v):
     header(d, v, "running LLMs")
     rows = llm_rows(v) if v.live else []
     if not rows:
-        ctext(d, 240, 150, "no LLM engines running" if v.live else "no data", font(16, True), DIM)
+        ctext(
+            d,
+            240,
+            150,
+            "no LLM engines running" if v.live else "no data",
+            font(16, True),
+            DIM,
+        )
     y = 34
     for engine, name, detail in rows[:6]:
         col = ENGINE_COLORS.get(engine, DIM)
@@ -335,6 +422,7 @@ def render_llm(v):
         y += 45
     if len(rows) > 6:
         ctext(d, 240, 306, f"+{len(rows) - 6} more", font(10), DIM)
+    draw_countdown(d, v)
     return img
 
 

@@ -1,0 +1,5 @@
+# SmartCool / QTKeJi 3.5" USB LCD (vendor-class bulk device, 2a55:9990)
+#  - uaccess: whoever is logged in at the machine gets access (no group membership needed)
+#  - GROUP: lets a headless/system service (running as a member of that group) open it too
+#  - power/control=on: USB autosuspend stalls this firmware
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTRS{idVendor}=="2a55", ATTRS{idProduct}=="9990", MODE="0660", GROUP="@GROUP@", TAG+="uaccess", SYMLINK+="smartcool-lcd", ATTR{power/control}="on"
